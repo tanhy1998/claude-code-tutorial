@@ -1,0 +1,47 @@
+ProductID,ProductName,Category,Tier,ListPrice,UnitCost
+1,Road Bike Standard,Bikes,Standard,2208.42,1007.6
+2,Road Bike Pro,Bikes,Pro,2981.37,1546.61
+3,Mountain Bike Standard,Bikes,Standard,1063.83,674.59
+4,Mountain Bike Pro,Bikes,Pro,1436.17,889.24
+5,Touring Bike Standard,Bikes,Standard,2903.49,1369.68
+6,Touring Bike Pro,Bikes,Pro,3919.72,2177.33
+7,Kids Bike Standard,Bikes,Standard,531.94,268.45
+8,Kids Bike Pro,Bikes,Pro,718.12,413.88
+9,E-Bike Standard,Bikes,Standard,522.97,261.33
+10,E-Bike Pro,Bikes,Pro,706.01,432.41
+11,Chain Standard,Components,Standard,216.18,109.19
+12,Chain Pro,Components,Pro,291.84,174.32
+13,Brake Set Standard,Components,Standard,311.39,140.63
+14,Brake Set Pro,Components,Pro,420.38,273.86
+15,Pedals Standard,Components,Standard,271.33,145.18
+16,Pedals Pro,Components,Pro,366.3,179.07
+17,Saddle Standard,Components,Standard,364.6,194.75
+18,Saddle Pro,Components,Pro,492.21,232.91
+19,Wheel Set Standard,Components,Standard,54.82,36.28
+20,Wheel Set Pro,Components,Pro,74.0,44.47
+21,Handlebar Standard,Components,Standard,310.57,196.41
+22,Handlebar Pro,Components,Pro,419.26,244.87
+23,Jersey Standard,Clothing,Standard,136.48,74.33
+24,Jersey Pro,Clothing,Pro,184.25,108.34
+25,Gloves Standard,Clothing,Standard,117.65,71.13
+26,Gloves Pro,Clothing,Pro,158.83,105.69
+27,Cap Standard,Clothing,Standard,84.63,52.99
+28,Cap Pro,Clothing,Pro,114.25,52.72
+29,Socks Standard,Clothing,Standard,38.85,20.29
+30,Socks Pro,Clothing,Pro,52.45,24.65
+31,Shorts Standard,Clothing,Standard,39.5,18.77
+32,Shorts Pro,Clothing,Pro,53.32,27.7
+33,Jacket Standard,Clothing,Standard,92.27,49.94
+34,Jacket Pro,Clothing,Pro,124.57,67.58
+35,Helmet Standard,Accessories,Standard,52.42,27.09
+36,Helmet Pro,Accessories,Pro,70.76,48.41
+37,Lock Standard,Accessories,Standard,145.38,87.56
+38,Lock Pro,Accessories,Pro,196.27,96.72
+39,Bottle Standard,Accessories,Standard,162.57,79.8
+40,Bottle Pro,Accessories,Pro,219.48,119.59
+41,Pump Standard,Accessories,Standard,217.78,132.85
+42,Pump Pro,Accessories,Pro,294.0,173.24
+43,Light Set Standard,Accessories,Standard,153.14,101.18
+44,Light Set Pro,Accessories,Pro,206.74,133.14
+45,Bike Rack Standard,Accessories,Standard,56.56,25.91
+46,Bike Rack Pro,Accessories,Pro,76.35,40.38

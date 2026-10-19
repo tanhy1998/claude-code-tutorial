@@ -1,0 +1,16 @@
+relationship AutoDetected_4ee3a196-a8ba-41a0-b004-4d3275d56186
+	fromColumn: Sales.CustomerID
+	toColumn: Customers.CustomerID
+
+relationship AutoDetected_7dafdc26-faec-4465-8c82-fa7edea2e37a
+	fromColumn: Sales.ProductID
+	toColumn: Products.ProductID
+
+relationship AutoDetected_51a35c57-4454-4a99-a472-38f2fe6230d3
+	fromColumn: Sales.StoreID
+	toColumn: Stores.StoreID
+
+relationship 4fba75d0-af70-db0a-65b2-93eaa8ed988c
+	fromColumn: Sales.OrderDate
+	toColumn: dim_calendar.Date
+

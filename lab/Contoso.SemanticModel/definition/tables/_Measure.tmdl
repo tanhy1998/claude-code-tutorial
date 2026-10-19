@@ -1,0 +1,43 @@
+table _Measure
+	lineageTag: e56c09e4-78ed-4647-89fb-51f1e2516381
+
+	measure 'Total Sales' = SUMX(Sales, Sales[Quantity] * Sales[UnitPrice])
+		formatString: \$#,0.00;(\$#,0.00);\$#,0.00
+		displayFolder: Sales
+		lineageTag: b639cbad-70c9-49f6-93a2-bcd798e1a035
+
+	measure 'Total Quantity' = SUM(Sales[Quantity])
+		formatString: 0
+		displayFolder: Sales
+		lineageTag: 5c3fb640-3f94-4634-8053-78b485bc95ce
+
+	measure 'Avg Order Value' = DIVIDE([Total Sales], DISTINCTCOUNT(Sales[OrderID]))
+		formatString: \$#,0.00;(\$#,0.00);\$#,0.00
+		displayFolder: Sales
+		lineageTag: 7ef9aea6-158e-4b04-8195-471bc9dbdfe9
+
+	measure 'Gross Margin (%)' =
+			VAR __Cost = SUMX(Sales, Sales[Quantity] * RELATED(Products[UnitCost]))
+			RETURN
+				DIVIDE([Total Sales] - __Cost, [Total Sales])
+		formatString: 0.00%;-0.00%;0.00%
+		displayFolder: Sales
+		lineageTag: cbc88ae9-96ed-4dd6-812e-509c31404747
+
+	measure 'Total Cost' = SUMX(Sales, Sales[Quantity] * RELATED(Products[UnitCost]))
+		formatString: \$#,0.00;(\$#,0.00);\$#,0.00
+		displayFolder: Sales
+		lineageTag: 393afd02-f0fe-4da1-9002-226ac6c86486
+
+	partition _Measure = m
+		mode: import
+		source =
+				let
+				    Source = Table.FromRows(Json.Document(Binary.Decompress(Binary.FromText("i45WSlSKjQUA", BinaryEncoding.Base64), Compression.Deflate)), let _t = ((type nullable text) meta [Serialized.Text = true]) in type table [#"1" = _t]),
+				    #"Changed Type" = Table.TransformColumnTypes(Source,{{"1", type text}}),
+				    #"Removed Columns" = Table.RemoveColumns(#"Changed Type",{"1"})
+				in
+				    #"Removed Columns"
+
+	annotation PBI_ResultType = Table
+

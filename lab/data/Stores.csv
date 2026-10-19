@@ -1,0 +1,9 @@
+StoreID,StoreName,State,Region,StoreType
+1,Penang Store,Penang,North,Street
+2,Kedah Store,Kedah,North,Mall
+3,Kuala Lumpur Store,Kuala Lumpur,Central,Mall
+4,Selangor Store,Selangor,Central,Outlet
+5,Johor Store,Johor,South,Outlet
+6,Melaka Store,Melaka,South,Street
+7,Sabah Store,Sabah,East,Mall
+8,Sarawak Store,Sarawak,East,Outlet

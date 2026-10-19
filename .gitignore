@@ -1,6 +1,3 @@
-# lab/ is its own git repo (the course sandbox); don't nest it here
-/lab/
-
 # OS / editor junk
 .DS_Store
 Thumbs.db
