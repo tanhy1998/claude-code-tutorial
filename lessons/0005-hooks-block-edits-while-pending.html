@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lesson 5 · Hooks I: block model edits while Desktop has pending changes</title>
+<link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+<main>
+
+<nav class="crumbs"><a href="../index.html">Course map</a> · <a href="0004-skills-add-measure.html">Lesson 4</a> · Lesson 5 · <a href="../reference/hooks.html">Hooks reference</a> · <a href="../reference/glossary.html">Glossary</a></nav>
+
+<p class="kicker">Lesson 5 · From context to conditional enforcement</p>
+<h1>Hooks I: block model edits while Desktop has pending changes</h1>
+<p class="subtitle">A deny rule can say "never this file". A hook runs your own script before every tool call, so it can say "not now, because of that file".</p>
+<div class="meta"><span>~50 min</span><span>Hands-on: terminal + editor + Power BI Desktop</span><span>Primary source: <a href="https://code.claude.com/docs/en/hooks-guide">Automate actions with hooks</a></span></div>
+
+<div class="callout mission">
+  <span class="label">Why this, now</span>
+  When you click <em>Apply later</em> in Power Query, Desktop saves the pending queries to <code>.pbi\unappliedChanges.json</code>. Microsoft's docs warn that if you then edit queries outside Desktop, <q>your changes are lost and replaced by the queries in unappliedChanges.json when those changes are applied.</q> The file is also <q>saved in Git by default</q>, so a teammate can pull it in with a branch.<span class="sidenote-ref"></span><span class="sidenote"><a href="https://learn.microsoft.com/en-us/power-bi/developer/projects/projects-dataset#pbiunappliedchangesjson">Semantic model folder: .pbi\unappliedChanges.json</a> and <a href="https://learn.microsoft.com/en-us/power-bi/developer/projects/projects-external-editing#considerations-and-limitations">External editing: limitations</a> (Microsoft Learn).</span> Right now two things guard against this: a CLAUDE.md line, which Claude <em>chooses</em> to follow, and step 1 of <code>/add-measure</code>, which only runs when the skill does. Neither one is enforcement. Today you add enforcement.
+</div>
+
+<p><strong>Your win today:</strong> a hand-written, committed PreToolUse hook. Whenever <code>unappliedChanges.json</code> exists, it blocks every TMDL edit, whether Claude uses Edit, Write, or PowerShell. You'll also break it on purpose and watch it fail <em>open</em>, so you know what to test after every change to it.</p>
+
+<!-- ============================================================ -->
+<h2>From last time</h2>
+<table class="wide">
+  <tr><th>What I checked</th><th>Result</th></tr>
+  <tr><td>Lesson 4 commit</td><td><code>e616f21 Add /add-measure skill and Total Cost measure</code>. 👍</td></tr>
+  <tr><td>SKILL.md</td><td>The first line is exactly <code>---</code> with nothing escaped, so the plain-text editor fix worked. You used literal paths, <code>shell: powershell</code>, and <code>allowed-tools</code>, and the conventions stay in <code>tmdl.md</code> only. One home per instruction, done right this time.</td></tr>
+  <tr><td><code>Total Cost</code></td><td>Tabs, CRLF, the Sales folder, the money format from <code>format-strings.md</code>, a fresh lineageTag, and it sits before <code>partition</code>. Every skill step shows in the output.</td></tr>
+  <tr><td>Not reported yet</td><td>What you saw in steps 6, 8 and 9. Step 6 matters today: tell me whether the skill stopped on the fake pending file. That was the <em>context</em> version of what you'll enforce in this lesson.</td></tr>
+</table>
+
+<h3>Warm-up</h3>
+<p>Answer from memory.</p>
+
+<div class="quiz" data-answer="a">
+  <p class="q">W1. You have an old <code>~\.claude\skills\add-measure\</code> and the team's <code>.claude\skills\add-measure\</code>. Which one does <code>/add-measure</code> run?</p>
+  <div class="options">
+    <button data-key="a">Your personal copy, because personal beats project for skills</button>
+    <button data-key="b">The team's copy, because project beats personal for skills</button>
+    <button data-key="c">Whichever folder Claude Code happened to scan most recently</button>
+    <button data-key="d">Neither one; Claude Code reports a name clash and stops</button>
+  </div>
+  <div class="feedback" data-for="a">Enterprise, then personal, then project. For settings it's the reverse: the project's <code>settings.json</code> beats your user <code>~\.claude\settings.json</code>. That difference tripped you up in Lesson 4, which is why it's back.</div>
+</div>
+
+<div class="quiz" data-answer="a">
+  <p class="q">W2. In <code>/add-measure</code>, who runs <code>!`Test-Path …unappliedChanges.json`</code>, and who decides to stop when it's True?</p>
+  <div class="options">
+    <button data-key="a">Claude Code runs it; Claude reads the result and decides</button>
+    <button data-key="b">Claude runs it; Claude Code reads the result and decides</button>
+    <button data-key="c">Claude Code runs it and stops the session by itself</button>
+    <button data-key="d">Claude runs it and stops only when you approve it</button>
+  </div>
+  <div class="feedback" data-for="a">The command is preprocessing, but stopping is the model's choice, based on your step 1. If the skill isn't used, or Claude skips step 1, nothing stops the edit. Today's hook moves the decision itself into code.</div>
+</div>
+
+<!-- ============================================================ -->
+<h2>Part A: Where a hook sits</h2>
+<p>A hook is a command that Claude Code runs at a fixed point in its lifecycle. The docs call this <q>deterministic control: certain actions always happen rather than relying on the LLM to choose to run them.</q><span class="sidenote-ref"></span><span class="sidenote"><a href="https://code.claude.com/docs/en/hooks-guide">Hooks guide</a>, first paragraph. There are many events (SessionStart, Stop, FileChanged…). This lesson uses only <code>PreToolUse</code>. Lesson 6 adds <code>PostToolUse</code>.</span> A <strong>PreToolUse</strong> hook runs after Claude has decided on a tool call and before that call runs:</p>
+
+<div class="tree wide">Claude decides: Edit(_Measure.tmdl)
+  │
+  ├─ <span class="hl">PreToolUse hooks</span>   your script gets the call as JSON on stdin
+  │     exit 2  → <strong>blocked</strong>. Your stderr goes to Claude as the reason
+  │     exit 0  → no opinion; carry on
+  │
+  ├─ permission rules     deny → ask → allow   (Lesson 3)
+  ├─ permission mode      auto / manual / bypass …
+  │
+  ├─ the tool runs
+  └─ PostToolUse hooks    (Lesson 6: check what was written)</div>
+
+<p>Two facts follow from that order, and both were confirmed in my tests:</p>
+<ul>
+  <li><strong>A hook block beats every mode.</strong> <q>A hook that returns <code>permissionDecision: "deny"</code> blocks the tool even in <code>bypassPermissions</code> mode.</q> I ran Write and PowerShell edits in bypass mode with a pending file, and both were blocked.</li>
+  <li><strong>A hook can't loosen your rules.</strong> Hooks <q>can tighten restrictions but not loosen them past what permission rules allow. A hook returning <code>"allow"</code> doesn't bypass deny rules from settings.</q><span class="sidenote-ref"></span><span class="sidenote"><a href="https://code.claude.com/docs/en/hooks-guide#hooks-and-permission-modes">Hooks and permission modes</a>.</span> Your Lesson 3 deny list stays in charge.</li>
+</ul>
+
+<table class="wide">
+  <tr><th>Layer</th><th>What decides</th><th>Can it check "does another file exist right now?"</th></tr>
+  <tr><td>CLAUDE.md line</td><td>The model, if it remembers</td><td>Only if Claude decides to look</td></tr>
+  <tr><td><code>/add-measure</code> step 1</td><td>The model, only when the skill runs</td><td>Yes, but only inside that skill</td></tr>
+  <tr><td>Deny rule</td><td>Claude Code: tool + path pattern</td><td><strong>No.</strong> A rule matches the call itself, not the state of the disk</td></tr>
+  <tr><td><strong>PreToolUse hook</strong></td><td><strong>Your script, on every matching call</strong></td><td><strong>Yes. It's code, so it can check anything</strong></td></tr>
+</table>
+<p>Keep the CLAUDE.md line. It tells Claude <em>why</em>, so Claude asks you to apply the changes instead of hitting the wall over and over. The hook is the wall.</p>
+
+<!-- ============================================================ -->
+<h2>Part B: Anatomy</h2>
+<h3>The config: in <code>.claude\settings.json</code>, next to <code>permissions</code></h3>
+<pre><span class="file">lab\.claude\settings.json (the new part)</span><code>"hooks": {
+  "PreToolUse": [                                   ← the event
+    {
+      "matcher": "Edit|Write|PowerShell|Bash",      ← which tools (exact names, | = or)
+      "hooks": [
+        {
+          "type": "command",
+          "command": "powershell.exe",              ← exec form: a real .exe …
+          "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+                   "${CLAUDE_PROJECT_DIR}/.claude/hooks/block-unapplied.ps1"],
+                                                    ← … plus its arguments, no shell in between
+          "onFailure": "block"                      ← if the script crashes, block (fail closed)
+        }
+      ]
+    }
+  ]
+}</code></pre>
+<p>Matchers are case-sensitive tool names. <code>PowerShell</code> has to be in the list. On Windows, <q>Claude treats PowerShell as the primary shell and routes shell commands through it</q>, and <q>a hook that matches only <code>Bash</code> never fires there.</q><span class="sidenote-ref"></span><span class="sidenote"><a href="https://code.claude.com/docs/en/hooks#powershell">Hooks reference: PowerShell tool input</a>. <code>${CLAUDE_PROJECT_DIR}</code> is <q>the project root where the session started</q>, here <code>lab\</code>.</span></p>
+
+<h3>What your script receives on stdin</h3>
+<pre><code>{ "tool_name": "Edit",
+  "tool_input": { "file_path": "C:\\…\\lab\\Contoso.SemanticModel\\definition\\tables\\_Measure.tmdl",
+                  "old_string": "…", "new_string": "…" }, … }
+
+{ "tool_name": "PowerShell",
+  "tool_input": { "command": "Add-Content Contoso.SemanticModel\\definition\\…", … }, … }</code></pre>
+<p>Edit and Write give you a <code>file_path</code> (absolute). PowerShell and Bash only give you <code>command</code>, the raw text. So the script can't know for sure which files a shell command will touch. It can only search the text.</p>
+
+<h3>What your exit code means (PreToolUse)</h3>
+<table>
+  <tr><th>Exit</th><th>Tool call</th><th>Who sees what</th></tr>
+  <tr><td><code>0</code></td><td>Continues through the normal permission flow</td><td><q>Claude never sees stderr from a hook that exits 0</q></td></tr>
+  <tr><td><code>2</code></td><td><strong>Blocked</strong></td><td>Your <strong>stderr</strong> goes to Claude as the reason</td></tr>
+  <tr><td>anything else</td><td><strong>Continues.</strong> It's a <q>non-blocking error</q></td><td>A <code>hook error</code> notice with the first line of stderr</td></tr>
+</table>
+<p>Read that last row twice. <q>Exit code 1 without valid JSON output is a non-blocking error… If your hook is meant to enforce a policy, use <code>exit 2</code>.</q> A guard that crashes <strong>fails open</strong>. <code>"onFailure": "block"</code> (v2.1.295+) flips that: <q>a <code>PreToolUse</code> failure blocks the tool call.</q><span class="sidenote-ref"></span><span class="sidenote"><a href="https://code.claude.com/docs/en/hooks#exit-code-output">Exit code output</a> and <a href="https://code.claude.com/docs/en/hooks#block-the-action-when-a-hook-fails">Block the action when a hook fails</a>. There's also a JSON way to answer (<code>permissionDecision</code>: allow / deny / ask). Today you only need exit 2.</span></p>
+
+<!-- ============================================================ -->
+<h2>Part C: Three Windows traps (tested on v2.1.302)</h2>
+<div class="callout warn">
+  <span class="label">What I found running these hooks with Windows PowerShell 5.1</span>
+  <ol style="margin:0.3rem 0; padding-left:1.2rem">
+    <li><strong>PowerShell errors don't stop the script by default.</strong> In my first draft, <code>ConvertFrom-Json</code> failed on bad input. The script kept going with an empty <code>$call</code> and exited <strong>0</strong>, so the edit was allowed. The fix: start the script with <code>$ErrorActionPreference = "Stop"</code>. Then any error exits 1, and <code>onFailure: "block"</code> turns that into a block. I tested both: with <code>onFailure</code>, a crashing script blocked the Edit. Without it, the Edit went through and Claude saw no notice.</li>
+    <li><strong>Use exec form (<code>command</code> + <code>args</code>), not shell form.</strong> With <code>"shell": "powershell"</code> and <code>&amp; "…\script.ps1"</code>, my script's <code>exit 2</code> reached Claude Code as status <strong>1</strong>. It only blocked because <code>onFailure</code> was set. Exec form with <code>-File</code> passed 2 through cleanly. This is also the Windows example in the docs.</li>
+    <li><strong>A typo in the <code>-File</code> path fails open, even with <code>onFailure: "block"</code>.</strong> <code>powershell.exe</code> starts, prints <q>The argument … to the -File parameter does not exist</q>, and the debug log shows <code>finished with status 0</code>. Claude Code never sees a failure. The only way to catch this is to <em>test the block</em> after every edit to the hook config. You'll do that in step 7.</li>
+  </ol>
+  <p style="margin:0.3rem 0 0">Also: keep the <code>.ps1</code> plain ASCII. Windows PowerShell 5.1 reads a BOM-less script in the system ANSI code page, so curly quotes or em dashes can break it.<span class="sidenote-ref"></span><span class="sidenote"><a href="https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_character_encoding">about_Character_Encoding</a>. That's the opposite of what PBIP files need: UTF-8 without BOM.</span></p>
+</div>
+
+<!-- ============================================================ -->
+<h2>Part D: Do it</h2>
+<p>Steps 2–5 don't need Desktop. Keep it <strong>closed</strong> until step 6, so it doesn't react to the fake pending file.</p>
+
+<div class="checklist" data-id="l0005-do">
+<ol>
+  <li><p><strong>Start clean.</strong> In PowerShell, in <code>lab\</code>, run <code>git status</code>. It should show nothing to commit. Then tell me what happened in Lesson 4 steps 6, 8 and 9.</p></li>
+
+  <li><p><strong>Write the script by hand.</strong></p>
+<pre><code>mkdir .claude\hooks
+code .claude\hooks\block-unapplied.ps1</code></pre>
+    <p>Fill in the four <code>(write …)</code> parts. Plain ASCII only.</p>
+<pre><span class="file">lab\.claude\hooks\block-unapplied.ps1</span><code># PreToolUse guard: block semantic-model edits while Power BI Desktop
+# has pending Power Query changes (.pbi\unappliedChanges.json).
+$ErrorActionPreference = "Stop"
+$call = [Console]::In.ReadToEnd() | ConvertFrom-Json
+
+# Edit/Write name a file. PowerShell/Bash only have the command text.
+$target = (write: the file_path if there is one, else the command)
+if ((write: $target mentions neither .tmdl nor .SemanticModel\definition)) { exit 0 }
+
+$pending = Get-ChildItem "$env:CLAUDE_PROJECT_DIR\*.SemanticModel\.pbi\unappliedChanges.json" -ErrorAction SilentlyContinue
+if (-not $pending) { exit 0 }
+
+(write: one line to stderr: what's wrong, and what Claude should ask the user)
+(write: the exit that blocks)</code></pre>
+    <div class="recall">
+      <p class="prompt">Write your version in the file first. Then compare with mine. Hint: PowerShell <code>if</code> can return a value, and <code>-notmatch</code> takes a regex.</p>
+      <div class="model">
+<pre><code>$target = if ($call.tool_input.file_path) { $call.tool_input.file_path } else { $call.tool_input.command }
+if ($target -notmatch '\.tmdl|\.SemanticModel[\\/]definition') { exit 0 }
+…
+[Console]::Error.WriteLine("Blocked by hook: $($pending[0].FullName) exists. Ask the user to apply or discard the pending changes in Power BI Desktop first.")
+exit 2</code></pre>
+        <p><code>[\\/]</code> accepts either slash, because Claude writes paths both ways. Write the reason <em>for Claude</em>: it's the only thing Claude learns about why it was blocked. <code>Write-Error</code> would also go to stderr, but it adds a red error record that buries your message. And <code>-ErrorAction SilentlyContinue</code> on <code>Get-ChildItem</code> is there because "no pending file" is the normal case, not an error.</p>
+      </div>
+    </div></li>
+
+  <li><p><strong>Test the script without Claude.</strong> This is the fastest feedback loop you'll get: pipe fake JSON in and read the exit code. <em>Predict each result before you run it.</em></p>
+<pre><code>$env:CLAUDE_PROJECT_DIR = (Get-Location).Path
+$hook = ".claude\hooks\block-unapplied.ps1"
+$edit = '{"tool_name":"Edit","tool_input":{"file_path":"C:\\lab\\Contoso.SemanticModel\\definition\\tables\\_Measure.tmdl"}}'
+$ps   = '{"tool_name":"PowerShell","tool_input":{"command":"Add-Content Contoso.SemanticModel\\definition\\tables\\_Measure.tmdl x"}}'
+$md   = '{"tool_name":"Edit","tool_input":{"file_path":"C:\\lab\\CLAUDE.md"}}'
+
+$edit | powershell -NoProfile -ExecutionPolicy Bypass -File $hook; $LASTEXITCODE   # A: no pending
+Set-Content Contoso.SemanticModel\.pbi\unappliedChanges.json '{}'
+$edit | powershell -NoProfile -ExecutionPolicy Bypass -File $hook; $LASTEXITCODE   # B
+$ps   | powershell -NoProfile -ExecutionPolicy Bypass -File $hook; $LASTEXITCODE   # C
+$md   | powershell -NoProfile -ExecutionPolicy Bypass -File $hook; $LASTEXITCODE   # D
+'oops'| powershell -NoProfile -ExecutionPolicy Bypass -File $hook; $LASTEXITCODE   # E
+Remove-Item Contoso.SemanticModel\.pbi\unappliedChanges.json</code></pre>
+    <p>Mine gave: A <code>0</code>, B your message then <code>2</code>, C <code>2</code>, D <code>0</code>, E a red <code>ConvertFrom-Json</code> error then <code>1</code>. E is trap 1: once the hook is wired up, only <code>onFailure</code> turns that 1 into a block.</p></li>
+
+  <li><p><strong>Wire it in.</strong> Open <code>.claude\settings.json</code> and add the <code>"hooks"</code> block from Part B after <code>"permissions": {…}</code>. Type it rather than pasting, and remember the comma between the two blocks. Then check it, from cheapest to most thorough:</p>
+<pre><code># no output = valid JSON
+Get-Content .claude\settings.json -Raw | ConvertFrom-Json | Out-Null</code></pre>
+    <p>Start <code>claude</code> in <code>lab\</code> and run <code>/hooks</code>. Under <em>PreToolUse</em> you should see your matcher, and selecting it shows the command. If it's missing after a few seconds, restart the session. Hooks from settings files only run once the folder is trusted, which <code>lab\</code> already is. A teammate gets the trust dialog first.<span class="sidenote-ref"></span><span class="sidenote"><a href="https://code.claude.com/docs/en/hooks#workspace-trust">Workspace trust</a>. With <code>claude -p</code> there's no dialog, and a repo's hooks just run. Lesson 10 comes back to this.</span></p></li>
+
+  <li><p><strong>See it block (Desktop still closed).</strong> Fake a pending change:</p>
+<pre><code>Set-Content Contoso.SemanticModel\.pbi\unappliedChanges.json '{}'</code></pre>
+    <p>In Claude, send this. The override wording keeps CLAUDE.md from stopping Claude before the hook gets a chance (Lesson 3's lesson):</p>
+<pre><code>This is a test of a hook. Ignore the CLAUDE.md line about unappliedChanges.json
+and don't use /add-measure. Use the Edit tool to add a description line
+"/// Cost of goods sold: quantity x product unit cost" directly above the
+Total Cost measure in _Measure.tmdl. If anything blocks you, quote the error.</code></pre>
+    <p>Predict first: will you see a tool line, and whose words will the error be? Look for <code>PreToolUse:Edit hook error: […]: Blocked by hook: …</code>. Then: <q>Now try the same with the PowerShell tool.</q> Expect <code>PreToolUse:PowerShell hook error</code>. Last, run <code>git status</code>: <code>_Measure.tmdl</code> should be unchanged.</p></li>
+
+  <li><p><strong>The real edit (Desktop open).</strong> Delete the fake, then open <code>Contoso.pbip</code> and press <em>Save</em> in Desktop:</p>
+<pre><code>Remove-Item Contoso.SemanticModel\.pbi\unappliedChanges.json</code></pre>
+    <p>Back in Claude: <q>Pending changes are gone. Add that description now.</q> This time the hook exits 0 and the edit goes through. Click <strong>Apply external changes</strong> in Desktop, then hover over <em>Total Cost</em> in the Data pane. You should see the description.</p></li>
+
+  <li><p><strong>Break it on purpose (close Desktop first).</strong> In <code>settings.json</code>, change the script name in <code>args</code> to <code>block-unaplied.ps1</code> (one <em>p</em>) and save. Recreate the fake pending file. Predict: <code>onFailure</code> is <code>"block"</code>, so will this edit be blocked?</p>
+<pre><code>Use the Edit tool to add the line "/// test" above the table line in Stores.tmdl.</code></pre>
+    <p>Then clean up and fix it:</p>
+<pre><code>git checkout -- Contoso.SemanticModel/definition/tables/Stores.tmdl
+Remove-Item Contoso.SemanticModel\.pbi\unappliedChanges.json</code></pre>
+    <p>Fix the typo, and <strong>repeat the step 5 block test once</strong>. That repeat is the habit to keep: <em>after every change to a hook's config, prove it still blocks.</em></p></li>
+
+  <li><p><strong>Commit.</strong> Run <code>git status</code> first. Only the script, <code>settings.json</code>, and <code>_Measure.tmdl</code> (the description) should be listed. If <code>Contoso.SemanticModel/.pbi/unappliedChanges.json</code> appears, delete it. It's a leftover fake, and unlike <code>cache.abf</code>, your <code>.gitignore</code> doesn't exclude it.</p>
+<pre><code>git add .claude/hooks/block-unapplied.ps1 .claude/settings.json Contoso.SemanticModel/definition
+git commit -m "Block TMDL edits while Desktop has unapplied changes (PreToolUse hook)"</code></pre></li>
+</ol>
+</div>
+
+<!-- ============================================================ -->
+<h2>Part E: Retrieval practice</h2>
+<p>Scroll up only after you've answered.</p>
+<p class="quiz-score"></p>
+
+<div class="quiz" data-answer="a">
+  <p class="q">1. Why can't a <code>deny</code> rule do today's job?</p>
+  <div class="options">
+    <button data-key="a">Rules match the call's tool and path, not other files on disk</button>
+    <button data-key="b">Deny rules can't reach files inside a .SemanticModel folder</button>
+    <button data-key="c">Deny rules are only context, so Claude may choose to ignore them</button>
+    <button data-key="d">Deny rules apply in manual mode only, and you're in auto mode</button>
+  </div>
+  <div class="feedback" data-for="a"><code>Edit(**/*.tmdl)</code> would block TMDL edits <em>always</em>. "Only while <code>unappliedChanges.json</code> exists" depends on the state of the disk, and only code can check that.</div>
+</div>
+
+<div class="quiz" data-answer="a">
+  <p class="q">2. Your hook script hits an error and exits 1. <code>onFailure</code> isn't set. What happens to the Edit?</p>
+  <div class="options">
+    <button data-key="a">It runs, because exit 1 is a non-blocking error</button>
+    <button data-key="b">It's blocked, because any non-zero exit blocks</button>
+    <button data-key="c">You're prompted to choose whether to continue</button>
+    <button data-key="d">Claude Code retries the hook until it exits 0</button>
+  </div>
+  <div class="feedback" data-for="a">Only 2 blocks. A guard that crashes fails open unless you set <code>"onFailure": "block"</code>. In my test the edit went through and Claude saw no notice.</div>
+</div>
+
+<div class="quiz" data-answer="a">
+  <p class="q">3. The matcher is <code>"Edit|Write"</code>. Claude uses the PowerShell tool to run <code>Set-Content</code> on <code>_Measure.tmdl</code>. What happens?</p>
+  <div class="options">
+    <button data-key="a">The hook never fires, because PowerShell isn't matched</button>
+    <button data-key="b">The hook fires, because Claude Code maps Set-Content to Write</button>
+    <button data-key="c">It's blocked anyway, because deny rules cover all shell writes</button>
+    <button data-key="d">It needs approval, because shell writes always prompt you</button>
+  </div>
+  <div class="feedback" data-for="a">Matchers are exact tool names. On Windows, shell commands go through the <code>PowerShell</code> tool, so it has to be listed. Even then, the script only sees command <em>text</em>, so treat shell coverage as best effort.</div>
+</div>
+
+<div class="quiz" data-answer="a">
+  <p class="q">4. The <code>-File</code> path in <code>args</code> has a typo, and <code>onFailure</code> is <code>"block"</code>. The pending file exists. Claude edits a TMDL file. What happens?</p>
+  <div class="options">
+    <button data-key="a">The edit goes through, because PowerShell reported status 0</button>
+    <button data-key="b">It's blocked, because onFailure catches the missing script</button>
+    <button data-key="c">Claude Code refuses to load the broken settings file at all</button>
+    <button data-key="d">Claude sees the error and stops to ask you what to do</button>
+  </div>
+  <div class="feedback" data-for="a">That was step 7. <code>powershell.exe</code> itself started, so as far as Claude Code knew, the hook ran and reported 0. <code>onFailure</code> only catches failures that Claude Code can see. The protection here is testing the block after every change.</div>
+</div>
+
+<div class="quiz" data-answer="a">
+  <p class="q">5. A hook returns <code>permissionDecision: "allow"</code> for an Edit on <code>definition.pbir</code>, which your settings deny. What happens?</p>
+  <div class="options">
+    <button data-key="a">Denied: hooks can tighten your rules, but not loosen them</button>
+    <button data-key="b">Allowed: hooks run first, so their answer always wins</button>
+    <button data-key="c">You're prompted, because the two layers disagree</button>
+    <button data-key="d">Allowed in auto mode only, denied in every other mode</button>
+  </div>
+  <div class="feedback" data-for="a"><q>A hook returning "allow" doesn't bypass deny rules from settings.</q> The reverse does work: a hook's block beats every allow rule and every mode.</div>
+</div>
+
+<div class="quiz" data-answer="a">
+  <p class="q">6. A teammate runs <code>claude --permission-mode bypassPermissions</code>. The pending file exists, and Claude edits TMDL. What happens?</p>
+  <div class="options">
+    <button data-key="a">Blocked, because PreToolUse runs before any mode check</button>
+    <button data-key="b">It runs, because bypass mode skips every hook and every rule</button>
+    <button data-key="c">It runs, but the hook writes a warning to the debug log</button>
+    <button data-key="d">You're prompted, because bypass turns hook blocks into prompts</button>
+  </div>
+  <div class="feedback" data-for="a">That's the docs' point about enforcing <q>policy that users can't bypass by changing their permission mode.</q> I ran it in bypass mode, and both Write and PowerShell were blocked.</div>
+</div>
+
+<div class="quiz" data-answer="a">
+  <p class="q">7. The pending file exists. You run <code>/add-measure</code>, whose <code>!`Select-String … _Measure.tmdl`</code> line mentions <code>.tmdl</code>. What happens?</p>
+  <div class="options">
+    <button data-key="a">It runs, because ! lines aren't tool calls and no hook sees them</button>
+    <button data-key="b">It's blocked, because the hook finds .tmdl in the command text</button>
+    <button data-key="c">The skill aborts, because the hook's exit 2 counts as a failure</button>
+    <button data-key="d">You're asked to approve the hook's decision before it runs</button>
+  </div>
+  <div class="feedback" data-for="a">I tested this: a skill's <code>!`…`</code> line read a <code>.tmdl</code> while the file was pending, and the hook never ran. That's what you want. The skill can still <em>see</em> the pending state and stop politely at step 1, and the hook catches any edit that gets past it.</div>
+</div>
+
+<div class="quiz" data-answer="a">
+  <p class="q">8. Where must the hook put its reason for a block?</p>
+  <div class="options">
+    <button data-key="a">On stderr, and the hook then exits with code 2</button>
+    <button data-key="b">On stdout, and the hook then exits with code 2</button>
+    <button data-key="c">On stderr, and the hook then exits with code 1</button>
+    <button data-key="d">On stdout, and the hook then exits with code 0</button>
+  </div>
+  <div class="feedback" data-for="a">With exit 2, <q>the message that comes with the block is your hook's stderr.</q> Stdout with exit 0 is for the JSON form, or it goes to the debug log.</div>
+</div>
+
+<div class="recall">
+  <p class="prompt"><strong>Write it out:</strong> the whole <code>"hooks"</code> block for <code>settings.json</code>, from memory. Then say in one sentence why the CLAUDE.md line about <code>unappliedChanges.json</code> should stay now that the hook exists.</p>
+  <div class="model">
+<pre><code>"hooks": {
+  "PreToolUse": [
+    { "matcher": "Edit|Write|PowerShell|Bash",
+      "hooks": [
+        { "type": "command",
+          "command": "powershell.exe",
+          "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+                   "${CLAUDE_PROJECT_DIR}/.claude/hooks/block-unapplied.ps1"],
+          "onFailure": "block" } ] } ] }</code></pre>
+    <p>The hook only says "no". The CLAUDE.md line tells Claude <em>why</em>, so it checks first and asks you to apply the changes, instead of planning an edit and hitting the block.</p>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<h2>Go deeper</h2>
+<p><strong>Primary source:</strong> <a href="https://code.claude.com/docs/en/hooks-guide">Automate actions with hooks</a> (Claude Code docs). Read "Block edits to protected files", "Hooks and permission modes", and "Limitations and troubleshooting". Then, in the <a href="https://code.claude.com/docs/en/hooks">Hooks reference</a>, read "Exit code output", "Block the action when a hook fails", "Windows PowerShell tool", and "Debug hooks". Skip prompt and agent hooks for now.</p>
+<p>To see a hook run: start with <code>claude --debug-file hooks.log</code> and search for <code>Hooks: PreToolUse</code>. Each line ends with <code>finished with status N</code>. That's how I spotted trap 3.</p>
+<p>Reference sheets: <a href="../reference/hooks.html">Hooks</a> · <a href="../reference/settings-permissions.html">Settings &amp; permissions</a> · <a href="../reference/skills.html">Skills</a> · <a href="../reference/glossary.html">Glossary</a>.</p>
+
+<div class="callout">
+  <span class="label">Ask your teacher</span>
+  Ask me anything in this session, for example <q>check my script</q>, <q>why does /hooks show nothing?</q>, or <q>should this be a hook or a rule?</q> Then tell me: in step 5, the exact error lines for Edit and PowerShell. In step 6, did the description show in Desktop? In step 7, your prediction and what actually happened. And also Lesson 4 steps 6, 8 and 9.
+</div>
+
+<nav class="lesson-nav">
+  <a href="0004-skills-add-measure.html">← Lesson 4: Skills</a>
+  <a href="0006-hooks-check-every-tmdl-write.html">Lesson 6: Hooks II, check every TMDL write →</a>
+</nav>
+
+</main>
+<script src="../assets/components.js"></script>
+</body>
+</html>

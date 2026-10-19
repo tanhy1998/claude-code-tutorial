@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lesson 2 · Rules: different instructions for TMDL and PBIR</title>
+<link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+<main>
+
+<nav class="crumbs"><a href="../index.html">Course map</a> · <a href="0001-claude-md-for-a-pbip-repo.html">Lesson 1</a> · Lesson 2 · <a href="../reference/rules.html">Rules reference</a> · <a href="../reference/glossary.html">Glossary</a></nav>
+
+<p class="kicker">Lesson 2 · Memory, scoped</p>
+<h1>Rules: different instructions for TMDL and PBIR</h1>
+<p class="subtitle">Claude gets your measure conventions only when it touches the model, and your report rules only when it touches the report.</p>
+<div class="meta"><span>~35 min</span><span>Hands-on: terminal + Power BI Desktop</span><span>Primary source: <a href="https://code.claude.com/docs/en/memory#organize-rules-with-claude/rules/">Organize rules with .claude/rules/</a></span></div>
+
+<div class="callout mission">
+  <span class="label">Why this, now</span>
+  Look at the <em>Team conventions</em> you wrote in <code>lab\CLAUDE.md</code>: <code>_Measure</code>, display folders, measure names. Every line is about TMDL. Right now Claude loads them in every session, including sessions where it only moves a visual. As your team's repo grows to several models and reports, CLAUDE.md fills up with instructions that are irrelevant most of the time. The docs name the fix: <q>If an entry … only matters for one part of the codebase, move it to a … path-scoped rule</q> (<a href="https://code.claude.com/docs/en/memory#write-effective-instructions">memory docs</a>).
+</div>
+
+<p><strong>Your win today:</strong> two hand-written rule files, <code>tmdl.md</code> and <code>pbir.md</code>. You'll <em>see</em> each one load only when Claude opens a matching file. Your measure-naming convention will still catch a bad name, even though it no longer lives in CLAUDE.md.</p>
+
+<!-- ============================================================ -->
+<h2>Warm-up: from last time</h2>
+<p>Answer from memory. Spacing these out is what moves them into long-term memory.</p>
+
+<div class="quiz" data-answer="a">
+  <p class="q">W1. Your repo has both <code>AGENTS.md</code> and <code>CLAUDE.md</code>, and CLAUDE.md has no <code>@AGENTS.md</code> line. What does Claude load by default?</p>
+  <div class="options">
+    <button data-key="a">Only CLAUDE.md; AGENTS.md is skipped</button>
+    <button data-key="b">Only AGENTS.md; CLAUDE.md is skipped</button>
+    <button data-key="c">Both files, CLAUDE.md read first</button>
+    <button data-key="d">Both files, AGENTS.md read first</button>
+  </div>
+  <div class="feedback" data-for="a">By default it's one or the other: a <code>CLAUDE.md</code> or <code>CLAUDE.local.md</code> in your working directory or above it means AGENTS.md isn't read. To load both, put <code>@AGENTS.md</code> in CLAUDE.md, or set <code>/config</code> → Project instructions → <code>claude-md-and-agents-md</code> (<a href="https://code.claude.com/docs/en/memory#agents-md">docs</a>).</div>
+</div>
+
+<div class="quiz" data-answer="a">
+  <p class="q">W2. A teammate says, "We wrote NEVER edit diagramLayout.json in CLAUDE.md, so we're safe." What's the flaw?</p>
+  <div class="options">
+    <button data-key="a">It's a request; only hooks enforce actions</button>
+    <button data-key="b">Capital letters are ignored by the parser</button>
+    <button data-key="c">CLAUDE.md only loads after you run /init</button>
+    <button data-key="d">Instructions are dropped after the first compaction</button>
+  </div>
+  <div class="feedback" data-for="a">CLAUDE.md is context, not enforcement. That's true of rules too: everything in this lesson is still context. The hard block comes in Lesson 5.</div>
+</div>
+
+<!-- ============================================================ -->
+<h2>Part A: What a rule is</h2>
+
+<h3>1. A rule is a markdown file in <code>.claude/rules/</code></h3>
+<p>You put one topic per file, with a descriptive name. Claude Code finds every <code>.md</code> file in that folder, including files in subfolders.<span class="sidenote-ref"></span><span class="sidenote"><a href="https://code.claude.com/docs/en/memory#set-up-rules">Set up rules</a>. There's also a personal level, <code>~/.claude/rules/</code>, which applies to every project on your machine. User rules load before project rules, and neither overrides the other.</span> On its own, a rule is no different from CLAUDE.md: <q>Rules without <code>paths</code> frontmatter are loaded at launch with the same priority as <code>.claude/CLAUDE.md</code>.</q></p>
+
+<h3>2. <code>paths:</code> is what makes a rule load on demand</h3>
+<p>Add YAML frontmatter with a <code>paths</code> list, and the rule <q>loads when Claude uses the Read, Write, or Edit tool on a matching file</q>. It also loads when Claude views a matching file with a single-file Bash read such as <code>cat</code> or <code>head</code>.<span class="sidenote-ref"></span><span class="sidenote"><a href="https://code.claude.com/docs/en/memory#path-specific-rules">Path-specific rules</a>. <code>paths</code> is the <em>only</em> frontmatter field that rules read. Any other field is silently ignored, and the frontmatter is removed before the rule reaches Claude.</span> Until then, the rule costs no context.</p>
+<pre><span class="file">.claude\rules\tmdl.md</span><code>---
+paths:
+  - "**/*.tmdl"
+---
+
+# TMDL rules
+- All measures live in the `_Measure` table …</code></pre>
+
+<h3>3. Patterns are globs, relative to the project root</h3>
+<table>
+  <tr><th>Pattern</th><th>Matches in your lab</th></tr>
+  <tr><td><code>**/*.tmdl</code></td><td>Every TMDL file at any depth: <code>model.tmdl</code>, <code>tables/_Measure.tmdl</code>, …</td></tr>
+  <tr><td><code>*.tmdl</code></td><td>TMDL files in the <em>project root</em> only. There are none, so this rule would never load.</td></tr>
+  <tr><td><code>**/*.Report/definition/**/*.json</code></td><td>PBIR JSON in <em>any</em> report folder, now and after you add <code>Finance.Report</code></td></tr>
+  <tr><td><code>**/*.{tmdl,pbism}</code></td><td>Brace expansion: two patterns in one</td></tr>
+</table>
+
+<div class="callout warn">
+  <span class="label">Two silent failures</span>
+  <p style="margin:0.2rem 0"><strong>Quote every pattern.</strong> In YAML, a value that starts with <code>*</code> is an <em>alias</em>, so an unquoted <code>- **/*.tmdl</code> is a syntax error. That matters because of the second failure:</p>
+  <p style="margin:0.2rem 0"><strong>Broken YAML doesn't fail loudly.</strong> <q>If the YAML between the markers doesn't parse, Claude Code ignores the frontmatter and loads the rule as if it had no <code>paths</code>.</q> The rule still works, but it loads in every session, so you never notice it's no longer on demand. Run <code>claude --debug</code> to see the parse error (<a href="https://code.claude.com/docs/en/memory#rules-frontmatter-reference">frontmatter reference</a>).</p>
+</div>
+
+<h3>4. After <code>/compact</code>, path rules wait for the next match</h3>
+<p>The project-root CLAUDE.md is re-read from disk after compaction. Path-scoped rules are not. They <q>load again on demand</q>, so if Claude seems to have forgotten your TMDL conventions after <code>/compact</code>, it's because it hasn't opened a <code>.tmdl</code> file since.<span class="sidenote-ref"></span><span class="sidenote"><a href="https://code.claude.com/docs/en/memory#troubleshoot-memory-issues">Troubleshoot memory issues</a>, the section titled "Instructions seem lost after /compact".</span></p>
+
+<h3>5. Where each instruction goes</h3>
+<table class="wide">
+  <tr><th>Home</th><th>Loads</th><th>Use it for (in PBIP)</th></tr>
+  <tr><td>Project <code>CLAUDE.md</code></td><td>Every session, at launch</td><td>Things true for <em>every</em> file: never-edit list, UTF-8/CRLF, Save → Apply workflow</td></tr>
+  <tr><td>Rule, no <code>paths</code></td><td>Every session, at launch</td><td>Same as CLAUDE.md, split into topic files. Organises; doesn't save context.</td></tr>
+  <tr><td>Rule with <code>paths</code></td><td>When Claude reads, writes, or edits a matching file</td><td>TMDL conventions; PBIR rules. Matches by <em>file type</em>, across every model and report folder.</td></tr>
+  <tr><td>Subdirectory <code>CLAUDE.md</code></td><td>When Claude touches a file in that folder</td><td>Something specific to <em>one</em> folder, e.g. one model with odd rules</td></tr>
+  <tr><td>Skill (Lesson 4)</td><td>When invoked, or when Claude judges it relevant</td><td>Procedures: "add a report page", "publish to test"</td></tr>
+</table>
+<p class="marginnote">The docs' note: <q>For task-specific instructions that don't need to be in context all the time, use skills instead.</q> Rules are for <em>facts and constraints</em> about a file type. Skills are for <em>step-by-step procedures</em>.</p>
+
+<!-- ============================================================ -->
+<h2>Part B: A bug in your CLAUDE.md</h2>
+<p>Before you split anything, fix a conflict that path-scoped rules would make worse. Your CLAUDE.md says <q>NEVER edit … <code>report.json</code></q>. I put that line in Lesson 1, copied from Microsoft's list. But your repo has <em>two</em> kinds of <code>report.json</code>:</p>
+<ul>
+  <li><code>Contoso.Report\report.json</code> (folder root) is the <strong>PBIR-Legacy</strong> format. It <q>doesn't support external editing</q>. Your lab doesn't have one.<span class="sidenote-ref"></span><span class="sidenote"><a href="https://learn.microsoft.com/en-us/power-bi/developer/projects/projects-report#reportjson">MS Learn: report folder</a>. The <a href="https://learn.microsoft.com/en-us/power-bi/developer/projects/projects-external-editing#considerations-and-limitations">external-editing page</a> just says <q>report.json</q> and doesn't say which one. When the source is ambiguous, write the conservative rule and say why.</span></li>
+  <li><code>Contoso.Report\definition\report.json</code> is the <strong>PBIR</strong> report metadata (report-level filters, theme). It's a required, schema-documented PBIR file.</li>
+</ul>
+<p>Make the line say exactly which file it means. Your PBIR rule will then say how to treat the other one. If two instructions contradict each other, Claude <q>may pick one arbitrarily</q>.</p>
+
+<!-- ============================================================ -->
+<h2>Part C: Do it</h2>
+
+<div class="checklist" data-id="l0002-do">
+<ol>
+  <li><p>Create the folder, then open a new file in your editor:</p>
+<pre><code>cd $HOME\Desktop\Claude\claude-code-tutorial\lab
+New-Item -ItemType Directory -Force .claude\rules
+notepad .claude\rules\tmdl.md      # or: code .claude\rules\tmdl.md</code></pre></li>
+
+  <li><p><strong>Write <code>tmdl.md</code> by hand.</strong> <em>Cut</em> your Team conventions out of CLAUDE.md and rewrite them here as separate, checkable lines. Below is a model; use your own words. The last two lines are TMDL syntax facts from <a href="https://learn.microsoft.com/en-us/analysis-services/tmdl/tmdl-overview#indentation">Microsoft's TMDL docs</a>. The canary line is temporary: it lets you <em>see</em> when the rule has loaded.</p>
+<pre><span class="file">lab\.claude\rules\tmdl.md</span><code>---
+paths:
+  - "**/*.tmdl"
+---
+
+# TMDL (semantic model) rules
+- All measures live in the `_Measure` table, each with a `displayFolder`
+  (General, Sales, Product). Flag any measure that has none.
+- Measure names are business-friendly, with units where they apply:
+  `Gross Profit (%)`, `Total Sales`. Never `_Sales` or `sales_num`.
+- Every measure has a `formatString`.
+- Indent with tabs. Multi-line DAX sits one level deeper than the measure's properties.
+- Wrap names in single quotes if they contain a space, `.`, `=`, `:` or `'`.
+- CANARY (remove after Lesson 2): end every reply with "(tmdl rule)".</code></pre></li>
+
+  <li><p><strong>Write <code>pbir.md</code> yourself. No model this time.</strong> Use the glob from Part A that covers <em>any</em> report folder. Turn these facts from <a href="https://learn.microsoft.com/en-us/power-bi/developer/projects/projects-report#pbir-format">MS Learn: PBIR format</a> into short, checkable lines, and add a canary that says <q>(pbir rule)</q>:</p>
+    <ul>
+      <li>Every PBIR file declares a <code>$schema</code> URL at the top and <q>must conform</q> to it. An invalid schema or a missing required property is a <em>blocking</em> error in Desktop.</li>
+      <li>Page and visual folders are named after the object's <code>name</code> property (a 20-character ID). Renaming <q>might break external references</q>. Names may only contain letters, digits, <code>_</code> or <code>-</code>, and Desktop must be restarted after a rename.</li>
+      <li><code>visual.json</code> and bookmark files can hold <em>data values</em> from the model, such as filter values and slicer selections. That matters once you work with company data.</li>
+      <li>From Part B: decide what to say about <code>definition/report.json</code>.</li>
+    </ul>
+    <div class="recall">
+      <p class="prompt">Write your <code>pbir.md</code> in the file first. Then type the frontmatter here from memory and compare it with mine.</p>
+      <div class="model">
+<pre><span class="file">lab\.claude\rules\pbir.md</span><code>---
+paths:
+  - "**/*.Report/definition/**/*.json"
+---
+
+# PBIR (report) rules
+- Keep each file's `$schema` line and only use properties that schema allows.
+  Invalid JSON or schema = Desktop refuses to apply the change.
+- Never rename page/visual folders or their `name` property unless I ask.
+  If I do: only letters, digits, `_`, `-`; remind me to restart Desktop.
+- visual.json and bookmarks can contain real data values (filters, slicers).
+  Don't quote them back in summaries.
+- `definition/report.json` holds report-level settings: ask before editing it.
+- CANARY (remove after Lesson 2): end every reply with "(pbir rule)".</code></pre>
+        <p>If your pattern was <code>Contoso.Report/…</code>, it works today but silently stops covering the next report your team adds.</p>
+      </div>
+    </div></li>
+
+  <li><p>Fix the CLAUDE.md line from Part B so it names the root-level, PBIR-Legacy <code>report.json</code> specifically. Check that no TMDL conventions are left in CLAUDE.md.</p></li>
+
+  <li><p><strong>Predict, then check:</strong> restart Claude in <code>lab\</code> and run <code>/context</code>. Before you look, predict whether <code>tmdl.md</code> and <code>pbir.md</code> appear under <strong>Memory files</strong>. They're path-scoped and no file has been opened yet, so they shouldn't. If one appears, its frontmatter didn't parse.</p></li>
+
+  <li><p><strong>Report-only test.</strong> Ask: <q>What visuals are on Page 1, and what does each one show?</q> Claude has to open <code>visual.json</code>. The reply should end with <q>(pbir rule)</q> and <em>not</em> <q>(tmdl rule)</q>. You may also see a line in the terminal when a rule loads.</p></li>
+
+  <li><p><strong>Convention test.</strong> With Desktop saved, ask: <q>Add a measure margin_pct: gross margin as a % of Total Sales, using Products[UnitCost].</q> The naming rule now lives <em>only</em> in <code>tmdl.md</code>. Claude should open <code>_Measure.tmdl</code>, which loads the rule, then object to the name <code>margin_pct</code> and propose something like <code>Gross Margin (%)</code>, with a display folder and format string. The reply should end with <q>(tmdl rule)</q>. Apply external changes in Desktop. 🎉</p></li>
+
+  <li><p><strong>Break it on purpose.</strong> In <code>tmdl.md</code>, remove the quotes around <code>**/*.tmdl</code>. Restart Claude and run <code>/context</code>. Predict first: does <code>tmdl.md</code> now appear at launch? Then run <code>claude --debug</code> and look for the parse error. It goes to the newest log file in <code>~\.claude\debug\</code>, not the screen (see <a href="0003-permissions-enforce-the-never-list.html">Lesson 3</a>, step 1). Put the quotes back. If what you saw differs from the prediction, tell me. That's worth knowing.</p></li>
+
+  <li><p>Delete both canary lines. Commit <code>.claude/rules/</code>, CLAUDE.md, and the new measure:</p>
+<pre><code>git add .claude/rules CLAUDE.md Contoso.SemanticModel
+git commit -m "Move TMDL conventions to path-scoped rules; add PBIR rule"</code></pre></li>
+</ol>
+</div>
+
+<!-- ============================================================ -->
+<h2>Part D: Retrieval practice</h2>
+<p>Close Part A in your head first.</p>
+<p class="quiz-score"></p>
+
+<div class="quiz" data-answer="a">
+  <p class="q">1. <code>tmdl.md</code> has <code>paths: ["**/*.tmdl"]</code>. You ask Claude to retitle the bar chart, and it opens only <code>visual.json</code>. Is the TMDL rule in context?</p>
+  <div class="options">
+    <button data-key="a">No, no matching file was read or edited</button>
+    <button data-key="b">Yes, every rule file loads at session launch</button>
+    <button data-key="c">Yes, rules load whenever the model is mentioned</button>
+    <button data-key="d">No, path rules load only after you /compact</button>
+  </div>
+  <div class="feedback" data-for="a">A path-scoped rule loads when Claude reads, writes, or edits a matching file (Read/Write/Edit, or a single-file <code>cat</code>/<code>head</code>). Mentioning the model in your prompt doesn't count.</div>
+</div>
+
+<div class="quiz" data-answer="a">
+  <p class="q">2. You write <code>paths: ["*.tmdl"]</code>, correctly quoted. What happens in the lab repo?</p>
+  <div class="options">
+    <button data-key="a">Never loads; it only matches root-level TMDL files</button>
+    <button data-key="b">Loads for every TMDL file at any depth</button>
+    <button data-key="c">Loads every session because the pattern is invalid</button>
+    <button data-key="d">Loads only for files inside the tables folder</button>
+  </div>
+  <div class="feedback" data-for="a">Patterns are relative to the project root, and <code>*</code> doesn't cross folders. Your TMDL lives under <code>Contoso.SemanticModel/definition/</code>, so you need <code>**/</code>.</div>
+</div>
+
+<div class="quiz" data-answer="a">
+  <p class="q">3. Your rule's frontmatter has a YAML syntax error. What does Claude Code do?</p>
+  <div class="options">
+    <button data-key="a">Loads the rule every session, as if unscoped</button>
+    <button data-key="b">Skips the rule and shows an error banner</button>
+    <button data-key="c">Refuses to start until you fix the file</button>
+    <button data-key="d">Loads the rule only when you mention it</button>
+  </div>
+  <div class="feedback" data-for="a">It ignores the frontmatter and treats the rule as unscoped. The rule still works, so the mistake is easy to miss. <code>claude --debug</code> shows the parse error, and <code>/context</code> shows the rule loaded at launch.</div>
+</div>
+
+<div class="quiz" data-answer="a">
+  <p class="q">4. Next month the repo gets a second report, <code>Finance.Report</code>. Which pattern covers PBIR JSON in <em>both</em> reports?</p>
+  <div class="options">
+    <button data-key="a"><code>**/*.Report/definition/**/*.json</code></button>
+    <button data-key="b"><code>Contoso.Report/definition/**/*.json</code></button>
+    <button data-key="c"><code>**/*.SemanticModel/definition/**/*.json</code></button>
+    <button data-key="d"><code>**/*.Report/**/definition.pbir</code></button>
+  </div>
+  <div class="feedback" data-for="a">The <code>*.Report</code> wildcard matches every report folder, and <code>definition/**</code> matches pages, visuals, and bookmarks at any depth. The last option targets <code>definition.pbir</code>, a file you've banned from editing.</div>
+</div>
+
+<div class="quiz" data-answer="a">
+  <p class="q">5. After <code>/compact</code>, Claude seems to have forgotten your TMDL conventions. Why?</p>
+  <div class="options">
+    <button data-key="a">Path rules reload only when a .tmdl is touched</button>
+    <button data-key="b">Compaction permanently removes every rule file from the session</button>
+    <button data-key="c">Rules are only read once, when you install them</button>
+    <button data-key="d">The project CLAUDE.md overrides all rules after compaction runs</button>
+  </div>
+  <div class="feedback" data-for="a">After <code>/compact</code>, only the project-root CLAUDE.md is re-read right away. Path rules come back the next time Claude opens a matching file.</div>
+</div>
+
+<div class="quiz" data-answer="a">
+  <p class="q">6. Which of these belongs in a TMDL path-scoped rule rather than in CLAUDE.md?</p>
+  <div class="options">
+    <button data-key="a">"Measures live in _Measure with a display folder"</button>
+    <button data-key="b">"Ask me to Save in Desktop before editing"</button>
+    <button data-key="c">"Save every project file as UTF-8 without BOM"</button>
+    <button data-key="d">"Never read or edit anything under .pbi folders"</button>
+  </div>
+  <div class="feedback" data-for="a">Only the first is about one file type. The other three apply to every file Claude might touch, so they stay always-on in CLAUDE.md.</div>
+</div>
+
+<div class="quiz" data-answer="a">
+  <p class="q">7. Your team has a 10-step "add a new report page" procedure that you run now and then. Best home?</p>
+  <div class="options">
+    <button data-key="a">A skill you invoke when needed</button>
+    <button data-key="b">A path-scoped rule for PBIR files</button>
+    <button data-key="c">The project CLAUDE.md, near the top</button>
+    <button data-key="d">A rule file with no frontmatter</button>
+  </div>
+  <div class="feedback" data-for="a">A procedure goes in a skill (Lesson 4). A PBIR rule would load that whole procedure every time Claude merely <em>reads</em> a visual.</div>
+</div>
+
+<div class="recall">
+  <p class="prompt"><strong>Write it out:</strong> the complete frontmatter for a rule that loads for TMDL files anywhere in the repo. Then list the two kinds of action that make it load, and one way to tell that a rule's frontmatter is broken.</p>
+  <div class="model">
+<pre><code>---
+paths:
+  - "**/*.tmdl"
+---</code></pre>
+    <p><strong>Loads when</strong> Claude uses Read, Write, or Edit on a matching file, or views one with a single-file Bash read (<code>cat</code>, <code>head</code>).</p>
+    <p><strong>Broken frontmatter:</strong> the rule appears under Memory files in <code>/context</code> at launch, before any file has been opened. <code>claude --debug</code> shows the parse error.</p>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<h2>Go deeper</h2>
+<p><strong>Primary source:</strong> <a href="https://code.claude.com/docs/en/memory#organize-rules-with-claude/rules/">Organize rules with .claude/rules/</a> (Claude Code docs), from "Set up rules" through "User-level rules". You can skip the symlinks section; on Windows you'd share rules through a plugin instead (Lesson 9).</p>
+<p>For a bigger picture of how teams lay out root CLAUDE.md, per-folder files, and rules, see <a href="https://code.claude.com/docs/en/large-codebases">Monorepos and large repos</a>. It's optional, and it's useful later for the capstone.</p>
+<p>Reference sheets: <a href="../reference/rules.html">Rules</a> · <a href="../reference/claude-md.html">CLAUDE.md</a> · <a href="../reference/glossary.html">Glossary</a>.</p>
+
+<div class="callout">
+  <span class="label">Ask your teacher</span>
+  Ask me anything in this session. For example: <q>should this convention be a rule or a subdirectory CLAUDE.md?</q>, <q>my canary never showed up</q>, or <q>check my pbir.md</q>. Then tell me three things: whether the canaries behaved as you predicted, what happened when you broke the quotes, and whether Claude caught <code>margin_pct</code>. Those answers shape Lesson 3.
+</div>
+
+<nav class="lesson-nav">
+  <a href="0001-claude-md-for-a-pbip-repo.html">← Lesson 1: CLAUDE.md</a>
+  <a href="0003-permissions-enforce-the-never-list.html">Lesson 3: Permissions →</a>
+</nav>
+
+</main>
+<script src="../assets/components.js"></script>
+</body>
+</html>

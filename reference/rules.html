@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reference · Rules (.claude/rules/)</title>
+<link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+<main>
+<nav class="crumbs"><a href="../index.html">Course map</a> · Reference · taught in <a href="../lessons/0002-path-scoped-rules-tmdl-vs-pbir.html">Lesson 2</a> · <a href="glossary.html">Glossary</a></nav>
+
+<p class="kicker">Reference</p>
+<h1>Rules: <code>.claude/rules/</code></h1>
+<p class="subtitle">One page. Source: <a href="https://code.claude.com/docs/en/memory#organize-rules-with-claude/rules/">code.claude.com/docs/en/memory</a> (checked 2026-10-15, Claude Code v2.1.300).</p>
+
+<h2>Locations</h2>
+<table>
+  <tr><th>Where</th><th>Applies to</th></tr>
+  <tr><td><code>.claude/rules/**/*.md</code></td><td>This project; committed, so it reaches the team. Subfolders are scanned too.</td></tr>
+  <tr><td><code>~/.claude/rules/*.md</code></td><td>You, in every project. Loads <em>before</em> project rules; neither overrides the other.</td></tr>
+</table>
+
+<h2>Load rules</h2>
+<ol>
+  <li><strong>No <code>paths</code></strong> → loads at launch, like <code>.claude/CLAUDE.md</code>. Organises, doesn't save context.</li>
+  <li><strong>With <code>paths</code></strong> → loads when Claude <strong>Reads, Writes, or Edits</strong> a matching file, or views one with a single-file <code>cat</code>/<code>head</code>.</li>
+  <li><strong>Broken YAML</strong> → frontmatter is ignored, so the rule loads <em>every session</em>. Check with <code>claude --debug</code>. The error goes to the <em>log file</em> <code>~\.claude\debug\&lt;session&gt;.txt</code>, not the screen: <code>[WARN] Failed to parse YAML frontmatter: … Unresolved alias</code>. A first line that isn't exactly <code>---</code> (e.g. <code>\---</code> from an editor that escapes markdown) means no frontmatter at all.</li>
+  <li><strong>After <code>/compact</code></strong> → path rules return only on the next matching file.</li>
+  <li>Still <strong>context, not enforcement</strong>. Conflicting rules → Claude <q>may pick one arbitrarily</q>.</li>
+</ol>
+
+<h2>Syntax</h2>
+<pre><span class="file">.claude/rules/tmdl.md</span><code>---
+paths:                                  ← the ONLY field rules read; others ignored
+  - "**/*.tmdl"                         ← ALWAYS quote: a leading * is YAML alias syntax
+  - "**/*.{pbism,pbir}"                 ← brace expansion = several patterns
+---
+
+# TMDL rules
+- One checkable instruction per line</code></pre>
+<p>Also accepted: a comma-separated string, e.g. <code>paths: "**/*.tmdl, **/*.pbism"</code>.</p>
+
+<h2>PBIP globs</h2>
+<table>
+  <tr><th>Pattern</th><th>Matches</th></tr>
+  <tr><td><code>**/*.tmdl</code></td><td>All TMDL, any model, any depth</td></tr>
+  <tr><td><code>**/*.Report/definition/**/*.json</code></td><td>All PBIR JSON, any report</td></tr>
+  <tr><td><code>**/*.SemanticModel/definition/tables/*.tmdl</code></td><td>Table files only</td></tr>
+  <tr><td><code>*.tmdl</code></td><td>Root folder only. Usually a mistake.</td></tr>
+</table>
+
+<h2>Which home?</h2>
+<table>
+  <tr><th>Instruction is…</th><th>Put it in</th></tr>
+  <tr><td>True for every file</td><td>Project <code>CLAUDE.md</code></td></tr>
+  <tr><td>About one file <em>type</em></td><td>Rule with <code>paths</code></td></tr>
+  <tr><td>About one <em>folder</em></td><td>Subdirectory <code>CLAUDE.md</code> (or a rule with a folder glob)</td></tr>
+  <tr><td>A multi-step procedure</td><td>Skill (<a href="skills.html">Lesson 4</a>)</td></tr>
+  <tr><td>Never touch this path/command</td><td><code>deny</code> rule in <code>.claude/settings.json</code> (<a href="settings-permissions.html">Lesson 3</a>)</td></tr>
+  <tr><td>A conditional must-never-happen</td><td>Hook (PreToolUse, Lesson 5)</td></tr>
+</table>
+
+<h2>Check it loaded</h2>
+<ul>
+  <li><code>/context</code> at launch: path rules should <em>not</em> be listed yet.</li>
+  <li>Temporary canary line (<q>end every reply with "(tmdl rule)"</q>), then open a matching file.</li>
+  <li>Later (Lesson 5): an <code>InstructionsLoaded</code> hook logs which rule files load, and why.</li>
+</ul>
+
+<p class="marginnote">PBIR facts used in the lab's <code>pbir.md</code>: <a href="https://learn.microsoft.com/en-us/power-bi/developer/projects/projects-report#pbir-format">MS Learn: PBIR format</a>. TMDL syntax: <a href="https://learn.microsoft.com/en-us/analysis-services/tmdl/tmdl-overview">TMDL overview</a>.</p>
+
+</main>
+</body>
+</html>

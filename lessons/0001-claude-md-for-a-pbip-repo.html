@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lesson 1 · CLAUDE.md: brief Claude on your PBIP repo once</title>
+<link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+<main>
+
+<nav class="crumbs"><a href="../index.html">Course map</a> · Lesson 1 · <a href="../reference/claude-md.html">CLAUDE.md reference</a></nav>
+
+<p class="kicker">Lesson 1 · Memory</p>
+<h1>CLAUDE.md: brief Claude on your PBIP repo once</h1>
+<p class="subtitle">So no teammate ever has to type "don't touch diagramLayout.json" into a chat again.</p>
+<div class="meta"><span>~45 min (15 of it is one-time lab setup)</span><span>Hands-on: terminal + Power BI Desktop</span><span>Primary source: <a href="https://code.claude.com/docs/en/memory">How Claude remembers your project</a></span></div>
+
+<div class="callout mission">
+  <span class="label">Why this, first</span>
+  Your mission is a PBIP workflow your <em>team</em> shares through git. Every other feature in this course (rules, skills, hooks, MCP, agents) sits on one base: the instructions Claude reads at the start of every session. The official docs say the same thing: <q>New to Claude Code? Start with CLAUDE.md for project conventions</q> (<a href="https://code.claude.com/docs/en/features-overview">features overview</a>).
+</div>
+
+<p><strong>Your win today:</strong> a hand-written, committed <code>CLAUDE.md</code> in a real PBIP repo. You'll see that Claude follows it: it adds a measure to your TMDL, Power BI Desktop applies the change, and Claude refuses to edit a file you've ruled off-limits.</p>
+
+<!-- ============================================================ -->
+<h2>Part A: Build the lab (one time)</h2>
+
+<p>You'll practise in a dummy PBIP project at <code>claude-code-tutorial\lab\</code>. I've already generated the data: four CSVs in <code>lab\data\</code> (Sales: 20,000 rows from 2024–2025; Products: 46; Customers: 600; Stores: 8 across Malaysian regions). You know Power BI, so this part is brief.</p>
+
+<div class="checklist" data-id="l0001-lab">
+<ol>
+  <li><p>In Power BI Desktop: <strong>File › Options › Preview features</strong>. Turn on <strong>Detect and reload external PBIP changes</strong> (needs the August 2026 release or later), then restart Desktop.<span class="sidenote-ref"></span><span class="sidenote">This is what lets Desktop notice files that Claude edits and offer <em>Apply external changes</em>. <a href="https://learn.microsoft.com/en-us/power-bi/developer/projects/projects-external-editing">MS Learn: Edit PBIP files outside Desktop</a>.</span> If the TMDL or PBIR storage options also appear there, make sure they're on.</p></li>
+  <li><p>New report → load the four CSVs → build a star schema: <code>Sales</code> joined to Products, Customers, and Stores on their IDs. Add a DAX <code>Date</code> table, mark it as a date table, and turn off Auto date/time for this file.</p></li>
+  <li><p>Create a measures table with 3 or 4 measures (e.g. <code>Total Sales</code>, <code>Total Quantity</code>, <code>Gross Margin %</code>). Build one report page with a card and a bar chart. Ten minutes is enough; it's a lab.</p></li>
+  <li><p><strong>File › Save as › Power BI project (.pbip)</strong> into the <code>lab</code> folder. Name it <code>Contoso</code>. You should end up with <code>Contoso.pbip</code>, <code>Contoso.SemanticModel\</code>, <code>Contoso.Report\</code> and a <code>.gitignore</code>.</p></li>
+  <li><p>Make the lab a git repo and commit a baseline. Microsoft recommends committing a baseline before letting an agent edit PBIP files, and setting <code>autocrlf</code> because Desktop writes CRLF line endings.<span class="sidenote-ref"></span><span class="sidenote">Baseline advice: <a href="https://learn.microsoft.com/en-us/power-bi/developer/agentic/power-bi-report-authoring-skill-overview">Report Authoring skill: Considerations</a>. CRLF and <code>autocrlf</code>: <a href="https://learn.microsoft.com/en-us/power-bi/developer/projects/projects-overview#considerations-and-limitations">PBIP considerations</a>.</span></p>
+<pre><code>cd $HOME\Desktop\Claude\claude-code-tutorial\lab
+git init
+git config core.autocrlf true
+git add .
+git commit -m "Baseline PBIP from Power BI Desktop"</code></pre></li>
+</ol>
+</div>
+
+<!-- ============================================================ -->
+<h2>Part B: What CLAUDE.md is (and isn't)</h2>
+
+<h3>1. Every session starts from zero</h3>
+<p>Each Claude Code session begins with a fresh context window. CLAUDE.md files are <q>instructions you write to give Claude persistent context</q>, and they're loaded at the start of every session.<span class="sidenote-ref"></span><span class="sidenote"><a href="https://code.claude.com/docs/en/memory">Memory docs</a>, opening section. The other mechanism there, <em>auto memory</em>, is notes Claude writes for itself. You write CLAUDE.md; Claude writes auto memory.</span> The docs put the test simply: write down <q>what you'd otherwise re-explain</q>. Add a line when Claude makes the same mistake twice, when review catches something Claude should have known, or when a new teammate would need the same context.</p>
+
+<h3>2. It's context, not enforcement</h3>
+<p>This is the most important idea in the lesson. <q>Claude treats them as context, not enforced configuration. To block an action regardless of what Claude decides, use a PreToolUse hook instead.</q><span class="sidenote-ref"></span><span class="sidenote"><a href="https://code.claude.com/docs/en/memory#claude-md-vs-auto-memory">Memory docs: CLAUDE.md vs auto memory</a>. The <a href="https://code.claude.com/docs/en/features-overview">features overview</a> says it more bluntly: <q>An instruction like "never edit .env" in CLAUDE.md or a skill is a request, not a guarantee.</q></span> In PBIP terms, "never edit <code>diagramLayout.json</code>" in CLAUDE.md is a strong request. In Lesson 5 you turn it into a hard block.</p>
+
+<h3>3. Four scopes, four files</h3>
+<p>Ask two questions about any instruction: <em>who</em> should get it, and <em>which projects</em> it applies to. The answers pick the file.</p>
+<table class="wide">
+  <tr><th>Scope</th><th>Location (Windows)</th><th>Shared with</th><th>PBIP example</th></tr>
+  <tr><td>Managed policy</td><td><code>C:\Program Files\ClaudeCode\CLAUDE.md</code></td><td>Everyone in the org (deployed by IT)</td><td>"Never paste customer data into prompts."</td></tr>
+  <tr><td>User</td><td><code>~\.claude\CLAUDE.md</code></td><td>Only you, in every project</td><td>"Explain DAX changes in one sentence; I'm advanced."</td></tr>
+  <tr><td>Project</td><td><code>.\CLAUDE.md</code> or <code>.\.claude\CLAUDE.md</code></td><td>The team, via git</td><td>"Measures live in <code>_Measures</code>; always set a format string."</td></tr>
+  <tr><td>Local</td><td><code>.\CLAUDE.local.md</code> (add it to <code>.gitignore</code>)</td><td>Only you, in this project</td><td>"My dev workspace is <em>Contoso-Dev-Mine</em>."</td></tr>
+</table>
+<p class="marginnote">Source: <a href="https://code.claude.com/docs/en/memory#choose-where-to-put-claude-md-files">Choose where to put CLAUDE.md files</a>. The table lists scopes from broadest to most specific, which is also the order they appear in context.</p>
+
+<h3>4. How they load</h3>
+<p>At launch, Claude Code loads <code>CLAUDE.md</code> and <code>CLAUDE.local.md</code> from the directory you started in <em>and every directory above it</em>. The files <strong>don't override each other</strong>. They're concatenated, from the filesystem root down to your working directory, so the files nearest to where you launched are read last. In each directory, <code>CLAUDE.local.md</code> comes after <code>CLAUDE.md</code>. A <code>CLAUDE.md</code> in a <em>subdirectory</em> doesn't load at launch. It loads the first time Claude reads or edits a file in that subdirectory.<span class="sidenote-ref"></span><span class="sidenote"><a href="https://code.claude.com/docs/en/memory#how-claude-md-files-load">How CLAUDE.md files load</a>. When two instructions contradict each other, Claude <q>may pick one arbitrarily</q>, so remove conflicts rather than relying on order.</span></p>
+<div class="tree wide">~\.claude\CLAUDE.md                   <span class="dim">← user scope: loads at launch, in every project</span>
+Desktop\Claude\claude-code-tutorial\  <span class="dim">← a CLAUDE.md here would ALSO load (ancestor)</span>
+└─ lab\                               <span class="hl">← you run `claude` here</span>
+   ├─ CLAUDE.md                       <span class="dim">← project scope: loads at launch, committed</span>
+   ├─ CLAUDE.local.md                 <span class="dim">← local scope: loads at launch, after CLAUDE.md, gitignored</span>
+   ├─ Contoso.SemanticModel\
+   │  └─ CLAUDE.md                    <span class="dim">← loads on demand: when Claude touches a file in here</span>
+   └─ Contoso.Report\</div>
+
+<h3>5. Writing it well</h3>
+<ul>
+  <li><strong>Make every instruction checkable.</strong> The docs contrast "Use 2-space indentation" with "Format code properly". For PBIP: "Save TMDL as UTF-8 without BOM" rather than "be careful with encoding".</li>
+  <li><strong>Keep it under 200 lines.</strong> Longer files cost context on every request and reduce adherence. <code>@path/to/file</code> imports help you organise, but they <em>don't</em> save context, because imported files load at launch too (max depth: four hops).<span class="sidenote-ref"></span><span class="sidenote"><a href="https://code.claude.com/docs/en/memory#write-effective-instructions">Write effective instructions</a> · <a href="https://code.claude.com/docs/en/memory#import-additional-files">Import additional files</a>. Instructions that matter for only part of the repo belong in path-scoped rules. That's Lesson 2.</span></li>
+  <li><strong>Leave notes for humans for free.</strong> Block-level <code>&lt;!-- HTML comments --&gt;</code> are stripped before the file reaches Claude. Use them for "why" notes and source links.</li>
+  <li><strong>Keep procedures out.</strong> A multi-step procedure, like a publish checklist, belongs in a <em>skill</em> (Lesson 4), not in CLAUDE.md.</li>
+</ul>
+
+<h3>6. The commands you'll use</h3>
+<table>
+  <tr><th>Command</th><th>What it does</th></tr>
+  <tr><td><code>/init</code></td><td>Analyses the repo and writes a starter CLAUDE.md. If one exists, it suggests improvements instead of overwriting.</td></tr>
+  <tr><td><code>/context</code></td><td>Shows what is actually in context, including the list of <strong>Memory files</strong> that loaded. Use it to check that a file loaded.</td></tr>
+  <tr><td><code>/memory</code></td><td>Lists every memory location (including files that don't exist yet), opens them in your editor, and toggles auto memory.</td></tr>
+  <tr><td><code>/doctor prompt-audit</code></td><td>Checks your instruction files for conflicts, stale references, and bloat. Proposes edits; changes nothing until you agree (v2.1.283+; you have 2.1.300).</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2>Part C: Do it</h2>
+
+<div class="checklist" data-id="l0001-do">
+<ol>
+  <li><p>In PowerShell, from <code>lab\</code>, start Claude and run <code>/init</code>. Read what it wrote. Notice what it <em>couldn't</em> work out from the files alone: Microsoft's rules about which PBIP files are safe to edit.</p>
+<pre><code>cd $HOME\Desktop\Claude\claude-code-tutorial\lab
+claude
+/init</code></pre></li>
+  <li><p>Open <code>CLAUDE.md</code> in your editor and add a PBIP section <strong>yourself</strong>. Type it rather than paste it; writing it is part of the learning. Every line below comes from Microsoft's PBIP docs:</p>
+<pre><span class="file">lab\CLAUDE.md (append)</span><code>## PBIP rules
+&lt;!-- Source: learn.microsoft.com/power-bi/developer/projects/projects-overview
+     and .../projects-external-editing. Stripped before Claude reads this file. --&gt;
+- Semantic model = TMDL in `Contoso.SemanticModel/definition/`. Report = PBIR JSON in `Contoso.Report/definition/`.
+- NEVER edit these (external edits unsupported): `definition.pbir`, `report.json`,
+  `mobileState.json`, `semanticModelDiagramLayout.json`, `diagramLayout.json`.
+- NEVER read or edit anything under `.pbi/` (`cache.abf`, `localSettings.json`): local cache, gitignored.
+- Save every file as UTF-8 without BOM. Keep CRLF line endings.
+- Before editing: ask me to Save in Power BI Desktop. After editing: tell me to click "Apply external changes".
+- If `.pbi/unappliedChanges.json` exists, stop and ask me to apply pending changes first.
+
+## Team conventions
+- (write two of your own, e.g. where measures live, format strings, display folders, naming)</code></pre></li>
+  <li><p>Create <code>CLAUDE.local.md</code> next to it with one personal line, such as <q>I'm advanced in DAX; keep explanations to one sentence.</q> Add <code>CLAUDE.local.md</code> to <code>.gitignore</code>.</p></li>
+  <li><p>Exit Claude (type <code>/exit</code>) and start it again so it reloads. Run <code>/context</code> and find <code>CLAUDE.md</code> and <code>CLAUDE.local.md</code> under <strong>Memory files</strong>. If one is missing, Claude can't see it.</p></li>
+  <li><p><strong>Positive test.</strong> Make sure Desktop has saved, then ask: <q>Add a measure Avg Order Value = Total Sales divided by distinct orders, with a currency format string.</q> Watch whether Claude asks you to save first and finishes by telling you to click <em>Apply external changes</em>. Click it in Desktop. The measure appears. 🎉</p></li>
+  <li><p><strong>Negative test.</strong> Ask: <q>Tidy up diagramLayout.json so the tables sit in a neat grid.</q> Claude should decline and point to your rule. Remember: it declined because it read a <em>request</em>. Nothing <em>prevented</em> the edit. That gap is what Lesson 5 closes.</p></li>
+  <li><p>Commit <code>CLAUDE.md</code>, <code>.gitignore</code>, and the new measure. Run <code>git status</code> first and confirm that <code>CLAUDE.local.md</code> is <em>not</em> listed.</p></li>
+</ol>
+</div>
+
+<!-- ============================================================ -->
+<h2>Part D: Retrieval practice</h2>
+<p>Close Part B in your head first. Answer from memory; the struggle is what makes it stick.</p>
+<p class="quiz-score"></p>
+
+<div class="quiz" data-answer="a">
+  <p class="q">1. The whole team must know "all measures live in the <code>_Measures</code> table". Where does it go?</p>
+  <div class="options">
+    <button data-key="a">Project CLAUDE.md, committed to git</button>
+    <button data-key="b">User CLAUDE.md in your home</button>
+    <button data-key="c">CLAUDE.local.md file, ignored by git</button>
+    <button data-key="d">Managed policy file from IT</button>
+  </div>
+  <div class="feedback" data-for="a">It's a team-wide convention for this project, so it goes in the project file and reaches teammates through git. User and local scope reach only you. Managed policy is org-wide and owned by IT.</div>
+</div>
+
+<div class="quiz" data-answer="a">
+  <p class="q">2. You launch Claude in <code>lab\Contoso.SemanticModel\</code>. Both <code>lab\CLAUDE.md</code> and <code>lab\Contoso.SemanticModel\CLAUDE.md</code> exist. What happens?</p>
+  <div class="options">
+    <button data-key="a">Both load, and the nearer file comes last</button>
+    <button data-key="b">Only the nearer file loads and overrides others</button>
+    <button data-key="c">Only the repo root file loads at launch</button>
+    <button data-key="d">Both load, and the parent file comes last</button>
+  </div>
+  <div class="feedback" data-for="a">Files from the launch directory and every directory above it are concatenated, from the root down. Nothing overrides; the nearest file is read last.</div>
+</div>
+
+<div class="quiz" data-answer="a">
+  <p class="q">3. Your CLAUDE.md says "NEVER edit diagramLayout.json". Is Claude guaranteed to comply?</p>
+  <div class="options">
+    <button data-key="a">No, it is context; enforcement needs a hook</button>
+    <button data-key="b">Yes, CLAUDE.md rules are enforced by the harness</button>
+    <button data-key="c">Yes, but only if written in capital letters</button>
+    <button data-key="d">No, CLAUDE.md is only read when running /init</button>
+  </div>
+  <div class="feedback" data-for="a">CLAUDE.md is context, not enforced configuration. A PreToolUse hook is what blocks an action whatever Claude decides. Capitals may help Claude notice a rule, but they guarantee nothing.</div>
+</div>
+
+<div class="quiz" data-answer="a">
+  <p class="q">4. Your CLAUDE.md is getting long, so you split it into three files with <code>@imports</code>. What happens to context cost?</p>
+  <div class="options">
+    <button data-key="a">Same cost; imports load at launch too</button>
+    <button data-key="b">Lower cost; imports load only when needed</button>
+    <button data-key="c">Lower cost; imported files get summarised first</button>
+    <button data-key="d">Higher cost; each import repeats the parent</button>
+  </div>
+  <div class="feedback" data-for="a">Imports help organisation, not context. To actually save context, use path-scoped rules (next lesson) or move content into a skill.</div>
+</div>
+
+<div class="quiz" data-answer="a">
+  <p class="q">5. Claude is ignoring an instruction. Which command shows whether the file loaded this session at all?</p>
+  <div class="options">
+    <button data-key="a"><code>/context</code></button>
+    <button data-key="b"><code>/memory</code></button>
+    <button data-key="c"><code>/init</code></button>
+    <button data-key="d"><code>/resume</code></button>
+  </div>
+  <div class="feedback" data-for="a"><code>/context</code> lists the memory files that loaded. <code>/memory</code> lists every memory <em>location</em>, including files that don't exist yet, so it can't tell you what actually loaded.</div>
+</div>
+
+<div class="quiz" data-answer="a">
+  <p class="q">6. Your personal Fabric dev workspace name matters only to you, only in this repo. Best home?</p>
+  <div class="options">
+    <button data-key="a">CLAUDE.local.md at the project root</button>
+    <button data-key="b">Project CLAUDE.md under a heading</button>
+    <button data-key="c">User CLAUDE.md in home folder</button>
+    <button data-key="d">Managed CLAUDE.md under Program Files</button>
+  </div>
+  <div class="feedback" data-for="a">Just you, just this project, so it's local scope, gitignored. The user file would carry it into every project you open.</div>
+</div>
+
+<div class="quiz" data-answer="a">
+  <p class="q">7. You have a 12-step "publish to the Fabric test workspace" checklist that you run weekly. Best home?</p>
+  <div class="options">
+    <button data-key="a">A skill invoked as a command</button>
+    <button data-key="b">The project CLAUDE.md, near the top</button>
+    <button data-key="c">A CLAUDE.local.md file hidden from teammates</button>
+    <button data-key="d">A memory file Claude writes itself</button>
+  </div>
+  <div class="feedback" data-for="a">The docs say a multi-step procedure belongs in a skill, which loads only when you use it. In CLAUDE.md it would cost context on every request. Skills are Lesson 4.</div>
+</div>
+
+<div class="recall">
+  <p class="prompt"><strong>Write it out:</strong> name the four CLAUDE.md scopes, where each file lives, and who it reaches. Then, in one sentence, explain why a CLAUDE.md rule can't guarantee that Claude never touches a file.</p>
+  <div class="model">
+    <p><strong>Managed policy:</strong> <code>C:\Program Files\ClaudeCode\CLAUDE.md</code>, whole org. <strong>User:</strong> <code>~\.claude\CLAUDE.md</code>, only you, every project. <strong>Project:</strong> <code>.\CLAUDE.md</code> or <code>.\.claude\CLAUDE.md</code>, the team via git. <strong>Local:</strong> <code>.\CLAUDE.local.md</code>, only you, this project, gitignored.</p>
+    <p>CLAUDE.md is context that Claude chooses to follow, not configuration the harness enforces. A hard guarantee needs a PreToolUse hook.</p>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<h2>Go deeper</h2>
+<p><strong>Primary source:</strong> <a href="https://code.claude.com/docs/en/memory">How Claude remembers your project</a> (Claude Code docs). Read the sections on scopes, loading, and "Write effective instructions". Skip AGENTS.md and auto memory for now.</p>
+<p>Keep the <a href="../reference/claude-md.html">CLAUDE.md reference sheet</a> open while you work. It condenses this lesson onto one printable page.</p>
+
+<div class="callout">
+  <span class="label">Ask your teacher</span>
+  Stuck, or curious? Ask me in the Claude Code session where you're running this course. For example: <q>why did /init write X?</q>, <q>should our naming convention go in project or user scope?</q>, or <q>Claude ignored my rule. Help me debug it.</q> Then tell me how the positive and negative tests went. That's what decides Lesson 2.
+</div>
+
+<nav class="lesson-nav">
+  <a href="../index.html">← Course map</a>
+  <a href="0002-path-scoped-rules-tmdl-vs-pbir.html">Next: Lesson 2, path-scoped rules for TMDL vs PBIR →</a>
+</nav>
+
+</main>
+<script src="../assets/components.js"></script>
+</body>
+</html>

@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reference · Settings &amp; permissions</title>
+<link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+<main>
+<nav class="crumbs"><a href="../index.html">Course map</a> · Reference · taught in <a href="../lessons/0003-permissions-enforce-the-never-list.html">Lesson 3</a> · <a href="glossary.html">Glossary</a></nav>
+
+<p class="kicker">Reference</p>
+<h1>Settings &amp; permissions</h1>
+<p class="subtitle">One page. Sources: <a href="https://code.claude.com/docs/en/settings">settings</a>, <a href="https://code.claude.com/docs/en/permissions">permissions</a>, <a href="https://code.claude.com/docs/en/permission-modes">permission modes</a> (checked 2026-10-18, Claude Code v2.1.302).</p>
+
+<h2>Files, highest precedence first</h2>
+<table>
+  <tr><th>#</th><th>File</th><th>Reaches</th></tr>
+  <tr><td>1</td><td>Managed (<code>managed-settings.json</code>, MDM, claude.ai console)</td><td>Your org. Can't be overridden.</td></tr>
+  <tr><td>2</td><td><code>claude --settings &lt;json|file&gt;</code></td><td>This session</td></tr>
+  <tr><td>3</td><td><code>.claude/settings.local.json</code></td><td>You, this repo. Gitignore it yourself if you created it by hand.</td></tr>
+  <tr><td>4</td><td><code>.claude/settings.json</code></td><td>The team, via git</td></tr>
+  <tr><td>5</td><td><code>~/.claude/settings.json</code> (<code>%USERPROFILE%\.claude</code>)</td><td>You, every project</td></tr>
+</table>
+<ul>
+  <li><strong>Single values</strong> (e.g. <code>model</code>): the highest file wins. <strong>Lists</strong> (<code>allow</code>/<code>ask</code>/<code>deny</code>): merged.</li>
+  <li><strong>A deny from any file beats an allow from any file.</strong></li>
+  <li>Strict JSON: no comments, no trailing commas. Changes reload live. Check with <code>/status</code> (Setting sources) and <code>/permissions</code> (rule + source file). Rejected entries: <code>claude doctor</code>.</li>
+  <li>Project <code>allow</code> rules wait for <em>workspace trust</em>. <code>deny</code>/<code>ask</code> apply immediately.</li>
+</ul>
+
+<h2>Rule syntax</h2>
+<pre><code>{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "deny":  ["Read(**/.pbi/cache.abf)", "Edit(.pbi/**)"],
+    "ask":   ["Edit(**/*.Report/definition/report.json)"],
+    "allow": ["Bash(git add *)", "PowerShell(git add *)"]
+  }
+}</code></pre>
+<ol>
+  <li>Checked in the order <strong>deny → ask → allow</strong>. First match wins. Specificity doesn't matter.</li>
+  <li><code>Tool</code> = every use; <code>Tool(specifier)</code> = matching uses. A bare <code>Bash</code> deny removes the tool.</li>
+  <li>File rules: use only <code>Read(…)</code> and <code>Edit(…)</code>. <code>Write(…)</code>/<code>Glob(…)</code> path rules are never consulted.</li>
+  <li>A <code>Read</code> deny also blocks Edit/Write on that path and hides the file from Glob.</li>
+  <li>Shell: <code>Bash(git log *)</code>. Put the <code>*</code> <em>after</em> the subcommand. <code>PowerShell(Get-ChildItem *)</code> also matches aliases (<code>ls</code>, <code>dir</code>).</li>
+</ol>
+
+<h2>Path shapes (gitignore syntax)</h2>
+<table>
+  <tr><th>Pattern</th><th>Matches</th></tr>
+  <tr><td><code>cache.abf</code></td><td>That name at any depth</td></tr>
+  <tr><td><code>.pbi/**</code></td><td>deny/ask: any depth · allow: launch folder only</td></tr>
+  <tr><td><code>.pbi/cache.abf</code></td><td>Anchored at the launch folder only</td></tr>
+  <tr><td><code>**/.pbi/cache.abf</code></td><td>Any depth</td></tr>
+  <tr><td><code>/path</code></td><td>Project root (project/local files) · <code>~/.claude/</code> (user file)</td></tr>
+  <tr><td><code>//c/Users/**</code></td><td>Absolute. Windows <code>C:\</code> becomes <code>/c/</code>.</td></tr>
+  <tr><td><code>~/path</code></td><td>Home folder</td></tr>
+</table>
+
+<h2>Modes</h2>
+<table>
+  <tr><th>Mode</th><th>No prompt for</th><th>Note</th></tr>
+  <tr><td><code>default</code> (Manual)</td><td>Reads</td><td></td></tr>
+  <tr><td><code>acceptEdits</code></td><td>+ edits, <code>mkdir</code>/<code>mv</code>/<code>cp</code>/<code>rm</code> in the folder</td><td></td></tr>
+  <tr><td><code>plan</code></td><td>Reads</td><td>No edits until a plan is approved</td></tr>
+  <tr><td><code>auto</code></td><td>Everything; a classifier checks shell/network actions</td><td>Built-in default since v2.1.283</td></tr>
+  <tr><td><code>dontAsk</code></td><td>Only pre-approved tools; the rest is denied</td><td>CI</td></tr>
+  <tr><td><code>bypassPermissions</code></td><td>Everything</td><td>Containers/VMs only</td></tr>
+</table>
+<ul>
+  <li><kbd>Shift</kbd>+<kbd>Tab</kbd> cycles modes. <code>--permission-mode &lt;mode&gt;</code> sets one at launch. <code>permissions.defaultMode</code> sets the default.</li>
+  <li><strong>Deny rules apply in every mode.</strong> <strong>Ask rules prompt even in auto and bypass.</strong></li>
+  <li><code>auto</code>/<code>bypassPermissions</code> in project or local settings don't take effect.</li>
+  <li><em>Protected paths</em> (<code>.git</code>, <code>.claude</code>, <code>.vscode</code>, <code>.mcp.json</code>…): writes are never auto-approved, except in bypass mode. Allow rules don't change that.</li>
+</ul>
+
+<h2>Limits</h2>
+<ul>
+  <li>Read/Edit denies cover built-in file tools, recognized Bash file commands (<code>cat</code>, <code>head</code>, <code>sed</code>, <code>tee</code>), and redirects. PowerShell <code>Get-Content</code> was also blocked in testing on v2.1.302. They <strong>don't</strong> cover scripts that open files themselves, or <code>grep -r .</code>.</li>
+  <li>Bash rules match command <em>text</em>: <code>Bash(git push *)</code> doesn't stop <code>git -C . push</code>. Not a security boundary.</li>
+  <li><strong>Windows:</strong> a <code>Bash(…)</code> deny turns off the PowerShell tool unless you add a matching <code>PowerShell(…)</code> rule.</li>
+</ul>
+
+<h2>Which tool for "never"?</h2>
+<table>
+  <tr><th>You need</th><th>Use</th></tr>
+  <tr><td>Claude should know <em>why</em></td><td>CLAUDE.md line (context)</td></tr>
+  <tr><td>A path or command is never allowed</td><td><code>deny</code> rule</td></tr>
+  <tr><td>Allowed, but I always confirm it</td><td><code>ask</code> rule</td></tr>
+  <tr><td>A conditional check ("if unappliedChanges.json exists, block edits")</td><td>PreToolUse hook (<a href="hooks.html">Lesson 5</a>)</td></tr>
+  <tr><td>Even scripts must not reach it</td><td>Sandbox / OS-level isolation</td></tr>
+</table>
+
+</main>
+</body>
+</html>

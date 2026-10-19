@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lesson 4 · Skills: turn "add a measure properly" into /add-measure</title>
+<link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+<main>
+
+<nav class="crumbs"><a href="../index.html">Course map</a> · <a href="0003-permissions-enforce-the-never-list.html">Lesson 3</a> · Lesson 4 · <a href="../reference/skills.html">Skills reference</a> · <a href="../reference/glossary.html">Glossary</a></nav>
+
+<p class="kicker">Lesson 4 · From rules to procedures</p>
+<h1>Skills: turn "add a measure properly" into <code>/add-measure</code></h1>
+<p class="subtitle">CLAUDE.md and rules say what must be true. A skill says how to do a job, step by step, and loads only when that job comes up.</p>
+<div class="meta"><span>~45 min</span><span>Hands-on: terminal + editor + Power BI Desktop</span><span>Primary source: <a href="https://code.claude.com/docs/en/skills">Extend Claude with skills</a></span></div>
+
+<div class="callout mission">
+  <span class="label">Why this, now</span>
+  Adding measures is the most common change you make to a model. Doing it properly takes the same steps every time: check for pending Desktop changes, check the measure doesn't already exist, check the columns exist, pick the team format string, give it a fresh <code>lineageTag</code>, then Apply in Desktop. Today you have to type all of that into the prompt, or hope Claude remembers it. A skill packs the steps into one command your team gets from git, and it costs almost no context until someone uses it.
+</div>
+
+<p><strong>Your win today:</strong> a hand-written, committed <code>/add-measure</code> skill. You'll use it to add <code>Total Cost</code> to the Contoso model and see it applied in Desktop. You'll also watch it stop when Desktop has unapplied changes, and catch a duplicate measure.</p>
+
+<!-- ============================================================ -->
+<h2>From last time</h2>
+<table class="wide">
+  <tr><th>What I checked</th><th>Result</th></tr>
+  <tr><td>Lesson 3 commit</td><td><code>a238883 Enforce PBIP never-edit list with permission rules</code> landed. 👍</td></tr>
+  <tr><td><code>settings.local.json</code> gitignored?</td><td>Yes. <code>git check-ignore -v</code> points at line 4 of <code>.gitignore</code>.</td></tr>
+  <tr><td>Step 4: who said no?</td><td>You weren't sure. Here's how to tell: <em>enforcement</em> appears as an error <strong>under a tool-call line</strong> (for example <code>Read(…)</code> followed by <q>denied by your permission settings</q>). If Claude answers in plain text with no tool line, it was the model deciding.</td></tr>
+  <tr><td>Left over</td><td><code>.claude\rules\tmdl.md</code> still has the <code>CANARY (remove after Lesson 2)</code> line. Every TMDL session still ends replies with "(tmdl rule)". You'll remove it in step 1.</td></tr>
+  <tr><td>Editor</td><td>The VS Code WYSIWYG markdown extension mangled <code>pbir.md</code>. Today you'll write two <code>.md</code> files, so step 1 fixes the editor first.</td></tr>
+</table>
+
+<h3>Warm-up</h3>
+<p>Answer from memory. These are Lesson 3 ideas, a few days on.</p>
+
+<div class="quiz" data-answer="a">
+  <p class="q">W1. Project settings have an <em>ask</em> rule for <code>Edit(**/*.Report/definition/report.json)</code>. Your local file <em>allows</em> <code>Edit(**/definition/report.json)</code>. You're in auto mode, and Claude edits that file. What happens?</p>
+  <div class="options">
+    <button data-key="a">You get a prompt, because ask is checked before allow</button>
+    <button data-key="b">It runs, because your local allow outranks the project ask</button>
+    <button data-key="c">It's blocked outright, because conflicting rules always resolve to deny</button>
+    <button data-key="d">The classifier decides, because auto mode skips all ask rules</button>
+  </div>
+  <div class="feedback" data-for="a">Deny, then ask, then allow. The first match wins, whichever file it comes from. Scope precedence only decides single values such as <code>model</code>.</div>
+</div>
+
+<div class="quiz" data-answer="a">
+  <p class="q">W2. Which deny rule blocks <code>localSettings.json</code> in <em>every</em> <code>.pbi</code> folder, at any depth?</p>
+  <div class="options">
+    <button data-key="a">Read(**/.pbi/localSettings.json)</button>
+    <button data-key="b">Read(.pbi/localSettings.json)</button>
+    <button data-key="c">Read(/.pbi/localSettings.json)</button>
+    <button data-key="d">Read(./.pbi/localSettings.json)</button>
+  </div>
+  <div class="feedback" data-for="a">A pattern with a <code>/</code> between segments is <em>anchored</em> at the launch folder. <code>**/</code> removes the anchor. A leading <code>/</code> anchors to the project root, so it's still one location.</div>
+</div>
+
+<!-- ============================================================ -->
+<h2>Part A: What a skill is, and when it loads</h2>
+<p>A skill is a folder with a <code>SKILL.md</code> file in it. It has frontmatter (like your rules), then markdown instructions. The thing that sets it apart is <em>when it loads</em>. By default, the <q>description [is] always in context, [and the] full skill loads when invoked</q>.<span class="sidenote-ref"></span><span class="sidenote"><a href="https://code.claude.com/docs/en/skills#control-who-invokes-a-skill">Control who invokes a skill</a>. Old <code>.claude/commands/*.md</code> files still work and make the same <code>/name</code>, but the docs recommend skills for new work, because skills add supporting files and invocation control.</span> Claude reads the one-line description in every session. The body only arrives when you type <code>/add-measure</code>, or when Claude decides your request matches the description.</p>
+
+<table class="wide">
+  <tr><th>Feature</th><th>Loads</th><th>Holds</th><th>In your lab</th></tr>
+  <tr><td>CLAUDE.md</td><td>Every session, in full</td><td>Facts true for the whole repo</td><td>PBIP layout, NEVER list, Save/Apply loop</td></tr>
+  <tr><td>Path rule</td><td>When Claude touches a matching file</td><td>Conventions for one file type</td><td><code>tmdl.md</code>: names, folders, formatString, tabs</td></tr>
+  <tr><td>Permission rule</td><td>Not context. The harness checks every tool call</td><td>Hard limits</td><td>Never-edit files, <code>.pbi\</code></td></tr>
+  <tr><td><strong>Skill</strong></td><td><strong>Description: always. Body: on invoke</strong></td><td><strong>A procedure</strong></td><td><strong>Today: the add-a-measure steps</strong></td></tr>
+</table>
+
+<h3>Where skills live</h3>
+<table>
+  <tr><th>Location</th><th>Path</th><th>Reaches</th></tr>
+  <tr><td>Personal</td><td><code>~\.claude\skills\&lt;name&gt;\SKILL.md</code></td><td>You, every project</td></tr>
+  <tr><td>Project</td><td><code>.claude\skills\&lt;name&gt;\SKILL.md</code></td><td>Everyone who clones the repo. <strong>Today.</strong></td></tr>
+  <tr><td>Plugin</td><td><code>&lt;plugin&gt;\skills\&lt;name&gt;\SKILL.md</code></td><td>Wherever the plugin is on, as <code>/plugin:name</code> (Lesson 9)</td></tr>
+</table>
+<p>When two skills have the same name: <q>enterprise over personal, and personal over project.</q> Compare the same pair of folders in settings: there, the project's <code>.claude\settings.json</code> beats your user <code>~\.claude\settings.json</code>. For skills it's reversed, and <strong>your personal folder beats the project</strong>. (Settings also has a <em>local</em> file, which outranks project, but skills have no local level, so it isn't part of this comparison.) A personal <code>add-measure</code> left over from an experiment would hide the team's. Plugin skills have a namespace, so they never clash.<span class="sidenote-ref"></span><span class="sidenote"><a href="https://code.claude.com/docs/en/skills#where-skills-live">Where skills live</a>. Claude Code watches skill folders and picks up edits without a restart. One exception: if <code>.claude\skills\</code> didn't exist when the session started, run <code>/reload-skills</code>.</span></p>
+
+<!-- ============================================================ -->
+<h2>Part B: Anatomy of SKILL.md</h2>
+<pre><span class="file">.claude\skills\add-measure\SKILL.md</span><code>---
+name: add-measure                        ← the /command. Defaults to the folder name
+description: Adds one DAX measure … Use when I ask to add a measure.
+                                         ← always in context; Claude matches on it
+argument-hint: "[name and what it calculates]"   ← grey hint after /add-measure
+shell: powershell                        ← run !`…` lines in PowerShell, not Bash
+allowed-tools:                           ← pre-approved for the turn that invokes it
+  - PowerShell(New-Guid)
+---
+
+- Unapplied changes: !`Test-Path Contoso.SemanticModel/.pbi/unappliedChanges.json`
+                       ↑ runs BEFORE Claude reads this; the output replaces it
+## Request
+$ARGUMENTS                               ← whatever you typed after /add-measure
+## Steps
+1. …                                     ← the procedure</code></pre>
+
+<h3>Three mechanisms you'll use</h3>
+<ol>
+  <li><strong>Arguments.</strong> <code>$ARGUMENTS</code> is everything you typed. <code>$0</code>, <code>$1</code>… are single words, counting from 0. Quoting groups words: <code>"Total Cost"</code> is one argument. <strong>Trap:</strong> any <code>$</code> followed by a digit is a placeholder, so "over $1 million" in your instructions turns into the second argument. Write <code>\$1</code>. (I tested this on v2.1.302. <code>\$#,0.00</code> format strings are left alone.)<span class="sidenote-ref"></span><span class="sidenote"><a href="https://code.claude.com/docs/en/skills#available-string-substitutions">Available string substitutions</a>.</span></li>
+  <li><strong>Dynamic context: <code>!`command`</code>.</strong> Claude Code runs the command <em>before</em> Claude sees the skill and pastes in the output. Claude never runs it and never decides whether to run it. It just reads the result. That makes it a good fit for facts that change, such as "are there pending changes right now?" or "which measures exist?". Two rules: a command that fails <q>aborts the entire skill invocation</q>, and commands go through permission checks.<span class="sidenote-ref"></span><span class="sidenote"><a href="https://code.claude.com/docs/en/skills#inject-dynamic-context">Inject dynamic context</a>. With <code>shell: powershell</code>, the commands run in PowerShell, so a teammate without Git Bash can still use the skill.</span></li>
+  <li><strong>Supporting files.</strong> Other files in the skill folder <em>load only when SKILL.md tells Claude to read them</em>. Put lookup material there, such as your team's format strings. Claude only spends context on them when it needs them.<span class="sidenote-ref"></span><span class="sidenote"><a href="https://code.claude.com/docs/en/skills#add-supporting-files">Add supporting files</a>. The docs suggest keeping SKILL.md under 500 lines.</span></li>
+</ol>
+
+<div class="callout warn">
+  <span class="label">What I found testing on v2.1.302 (manual mode)</span>
+  <p style="margin:0.2rem 0">In auto mode, all the <code>!`…`</code> lines ran. In <strong>manual mode</strong>, a teammate's likely default, <code>Test-Path</code> and <code>Select-String</code> ran without approval because they're read-only, but <code>New-Guid</code> didn't. <strong>The whole skill aborted with no message:</strong> the result was empty. The reason only appeared in the debug log: <code>Shell command permission check failed for command in /probe: New-Guid</code>. Listing it under <code>allowed-tools</code> fixed it.</p>
+  <p style="margin:0.2rem 0">Two more limits I hit: wildcards such as <code>*.SemanticModel/…</code> were refused <em>even with</em> <code>allowed-tools</code> (<q>Glob patterns in paths cannot be statically validated</q>), and so were .NET calls such as <code>[guid]::NewGuid()</code> and script blocks (<code>| ForEach-Object { … }</code>). Use literal paths and plain cmdlets.</p>
+</div>
+
+<h3>Who can invoke it</h3>
+<table>
+  <tr><th>Frontmatter</th><th>You type /name</th><th>Claude picks it</th><th>Description in context</th></tr>
+  <tr><td>(default)</td><td>Yes</td><td>Yes</td><td>Always</td></tr>
+  <tr><td><code>disable-model-invocation: true</code></td><td>Yes</td><td>No</td><td>No</td></tr>
+  <tr><td><code>user-invocable: false</code></td><td>No</td><td>Yes</td><td>Always</td></tr>
+</table>
+<p>Use <code>disable-model-invocation: true</code> for jobs where <em>you</em> choose the moment, such as a future <code>/commit-model</code> or a deploy. <code>/add-measure</code> is the opposite: you want <q>add a measure for total cost</q> to trigger it without typing the slash. Its edits are still covered by your rules and permissions, and they're easy to review in git.<span class="sidenote-ref"></span><span class="sidenote"><code>allowed-tools</code> <em>pre-approves</em> tools. It <q>does not restrict which tools are available</q>, and the grant ends when you send your next message. To block a skill entirely, use a permission rule: <code>Skill(add-measure *)</code> in <code>deny</code>.</span></p>
+
+<p><strong>Lifecycle:</strong> once invoked, the skill's text <q>stays there across later turns</q>, and Claude Code <q>does not re-read the skill file</q>. Edit SKILL.md mid-task, and Claude keeps following the old copy until you invoke it again. So write steps as standing instructions (<q>after every edit…</q>), and put the most important ones first.<span class="sidenote-ref"></span><span class="sidenote"><a href="https://code.claude.com/docs/en/skills#skill-content-lifecycle">Skill content lifecycle</a>. After auto-compaction, Claude Code re-attaches the first 5,000 tokens of each recently used skill.</span></p>
+
+<!-- ============================================================ -->
+<h2>Part C: What goes where</h2>
+<p>Lesson 2 left the TMDL conventions in two places at once. Don't repeat that here. Each instruction gets <strong>one</strong> home:</p>
+<table class="wide">
+  <tr><th>Instruction</th><th>Home</th><th>Why there</th></tr>
+  <tr><td>Names, display folders, every measure has a formatString, tabs</td><td><code>tmdl.md</code> rule (already)</td><td>True for <em>any</em> TMDL edit, with or without the skill. It loads anyway, because the skill makes Claude read <code>_Measure.tmdl</code>.</td></tr>
+  <tr><td>Pending-changes check, duplicate check, column check, where to insert, lineageTag, "tell me to Apply"</td><td><code>SKILL.md</code></td><td>Steps for one job, in order</td></tr>
+  <tr><td>The team's four format strings</td><td><code>format-strings.md</code> (supporting file)</td><td>Lookup data, read only when choosing a format</td></tr>
+  <tr><td>Never edit <code>diagramLayout.json</code></td><td><code>settings.json</code> deny (already)</td><td>Enforcement</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2>Part D: Do it</h2>
+
+<div class="checklist" data-id="l0004-do">
+<ol>
+  <li><p><strong>Prep (3 min).</strong> In VS Code, open settings JSON (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> → <em>Preferences: Open User Settings (JSON)</em>) and add:</p>
+<pre><code>"workbench.editorAssociations": { "*.md": "default" }</code></pre>
+    <p>VS Code now opens <code>.md</code> files as plain text. Notepad is also fine. Then delete the <code>CANARY</code> line from <code>lab\.claude\rules\tmdl.md</code>.</p></li>
+
+  <li><p><strong>Create the folder before you start Claude.</strong> In PowerShell, in <code>lab\</code>:</p>
+<pre><code>mkdir .claude\skills\add-measure
+code .claude\skills\add-measure\SKILL.md</code></pre>
+    <p>If a Claude session is already open, run <code>/reload-skills</code> in it. <code>.claude\skills\</code> didn't exist when that session started.</p></li>
+
+  <li><p><strong>Write SKILL.md by hand.</strong> Start from this skeleton and fill in the three <code>(write …)</code> parts yourself. For the measures line, use <code>Select-String</code> with <code>-Path</code> pointing at <code>_Measure.tmdl</code> and a <code>-Pattern</code> that matches measure lines <em>and</em> displayFolder lines. Keep it to one plain command, with no pipe. <strong>Each <code>!`…`</code> command must stay on one line in the file</strong>, even where this page wraps it.</p>
+<pre><span class="file">lab\.claude\skills\add-measure\SKILL.md</span><code>---
+name: add-measure
+description: (write this: what it does, then "Use when …")
+argument-hint: "[measure name and what it calculates]"
+shell: powershell
+allowed-tools:
+  - PowerShell(New-Guid)
+---
+
+## Model state (filled in before you read this)
+- Desktop has unapplied changes:
+!`Test-Path Contoso.SemanticModel/.pbi/unappliedChanges.json`
+- Existing measures and display folders:
+(write the Select-String line here, starting with !`)
+- lineageTag for the new measure: (write it)
+
+## Request
+$ARGUMENTS
+
+## Steps
+(write 5–7 numbered steps)</code></pre>
+    <div class="recall">
+      <p class="prompt">Write your version in the file first. Then paste your description and steps here and compare them with mine.</p>
+      <div class="model">
+<pre><code>description: Adds one DAX measure to the _Measure table of the Contoso semantic
+  model (TMDL), checking for pending Desktop changes, duplicates and missing
+  columns. Use when I ask to add, create or write a measure or KPI.
+…
+- Existing measures and display folders:
+!`Select-String -Path Contoso.SemanticModel/definition/tables/_Measure.tmdl -Pattern "^\tmeasure |displayFolder"`
+- lineageTag for the new measure: !`New-Guid`
+…
+## Steps
+1. If unapplied changes is True, stop. Ask me to apply them in Desktop first.
+2. If the request doesn't say what to calculate, ask. Don't guess business logic.
+3. If a measure above already calculates this, show it and ask before adding another.
+4. Check every table and column you reference exists in
+   Contoso.SemanticModel/definition/tables/*.tmdl. If one doesn't, stop and tell me.
+5. Pick the formatString from format-strings.md in this skill's folder.
+6. Add the measure after the last measure in _Measure.tmdl, before `partition`,
+   using the lineageTag above.
+7. Show me the new TMDL block, then remind me to click "Apply external changes".</code></pre>
+        <p>Lead the description with the use case, in words you'd actually type ("add a measure"). The listing cuts each description at 1,536 characters. Note what <em>isn't</em> here: naming rules, folder names, tabs. <code>tmdl.md</code> already says those.</p>
+      </div>
+    </div></li>
+
+  <li><p><strong>Write the supporting file.</strong> <code>code .claude\skills\add-measure\format-strings.md</code>:</p>
+<pre><span class="file">lab\.claude\skills\add-measure\format-strings.md</span><code># Team format strings (copy exactly)
+
+| Measure returns  | formatString                       |
+| ---------------- | ---------------------------------- |
+| Money            | \$#,0.00;(\$#,0.00);\$#,0.00       |
+| Percentage       | 0.00%;-0.00%;0.00%                 |
+| Count / quantity | #,0                                |
+| Ratio / decimal  | #,0.00                             |
+
+If none fits, ask me. Don't invent a new one.</code></pre></li>
+
+  <li><p><strong>Check that it loaded.</strong> Three checks, from cheapest to most thorough:</p>
+<pre><code># must print exactly ---
+Get-Content .claude\skills\add-measure\SKILL.md -TotalCount 1
+# expect: ✔ Validation passed
+claude plugin validate .claude\skills</code></pre>
+    <p>I tested <code>validate</code> on a file that started with <code>\---</code>, as your mangled <code>pbir.md</code> did. It reported <q>No frontmatter block found</q>. Then start <code>claude</code> in <code>lab\</code> and run <code>/skills</code>: <code>add-measure</code> should be listed as a project skill.</p></li>
+
+  <li><p><strong>See the pending-changes check stop it (Desktop closed).</strong> Close Power BI Desktop. Fake a pending change, invoke the skill, then remove the fake:</p>
+<pre><code>Set-Content Contoso.SemanticModel\.pbi\unappliedChanges.json '{}'</code></pre>
+    <p>In Claude: <code>/add-measure Total Cost = quantity × product unit cost</code>. Predict first: who runs <code>Test-Path</code>, Claude Code or Claude? And who decides to stop? Claude should stop at step 1 without editing. Then <strong>delete the fake straight away</strong>:</p>
+<pre><code>Remove-Item Contoso.SemanticModel\.pbi\unappliedChanges.json</code></pre>
+    <p>You create and delete it yourself in PowerShell, because your <code>Edit(.pbi/**)</code> deny stops Claude touching it, as it should.</p></li>
+
+  <li><p><strong>The real run.</strong> Open <code>Contoso.pbip</code> in Desktop. Run <code>/clear</code>, then the same <code>/add-measure</code> line. Watch for Claude reading <code>Products.tmdl</code> to check <code>UnitCost</code> (step 4), and for the money format from your supporting file (step 5). When it's done, click <strong>Apply external changes</strong> in Desktop. Check that <em>Total Cost</em> appears in the <em>Sales</em> folder, formatted as currency.</p></li>
+
+  <li><p><strong>Natural-language trigger and the duplicate check.</strong> No slash this time: <q>add a measure for total revenue</q>. Predict two things. Will Claude use the skill? Look for a tool line naming <code>add-measure</code>. And what will step 3 do, given that <code>Total Sales</code> exists? Answer "no, reuse Total Sales".</p></li>
+
+  <li><p><strong>Switch the description off.</strong> Add <code>disable-model-invocation: true</code> to the frontmatter and save (it reloads live). Run <code>/clear</code>, then ask <q>What skills are available?</q> Is <code>add-measure</code> listed? Then <em>remove</em> the line again. Be ready to explain to me why the default is right for this skill.</p></li>
+
+  <li><p><strong>Commit.</strong></p>
+<pre><code>git add .claude/skills .claude/rules/tmdl.md Contoso.SemanticModel/definition
+git commit -m "Add /add-measure skill and Total Cost measure"</code></pre>
+    <p>Run <code>git status</code> first. Only the measure and the skill files should change. <code>cache.abf</code> and <code>localSettings.json</code> stay gitignored.</p></li>
+</ol>
+</div>
+
+<!-- ============================================================ -->
+<h2>Part E: Retrieval practice</h2>
+<p>Scroll up only after you've answered.</p>
+<p class="quiz-score"></p>
+
+<div class="quiz" data-answer="a">
+  <p class="q">1. You have an old <code>~\.claude\skills\add-measure\</code> from an experiment, and the team's <code>.claude\skills\add-measure\</code>. You type <code>/add-measure</code>. Which runs?</p>
+  <div class="options">
+    <button data-key="a">Your personal copy, because personal beats project skills</button>
+    <button data-key="b">The team copy, because project beats personal skills</button>
+    <button data-key="c">Both run, one after the other, in order</button>
+    <button data-key="d">Neither; Claude Code refuses the clashing name outright</button>
+  </div>
+  <div class="feedback" data-for="a">Enterprise, then personal, then project: the docs' own example is <q><code>/deploy</code> runs the personal one</q>. Settings go the other way for the same two folders: the project's <code>settings.json</code> beats your user <code>~\.claude\settings.json</code>. If a teammate says the skill behaves oddly, ask whether they have a personal copy with the same name.</div>
+</div>
+
+<div class="quiz" data-answer="a">
+  <p class="q">2. You add <code>disable-model-invocation: true</code>. What changes?</p>
+  <div class="options">
+    <button data-key="a">Only you can run it; its description leaves Claude's context</button>
+    <button data-key="b">Only Claude can run it; it leaves your slash menu</button>
+    <button data-key="c">Both can still run it, but Claude must ask first</button>
+    <button data-key="d">Nobody can run it until you restart the whole session</button>
+  </div>
+  <div class="feedback" data-for="a">That's why step 9's "What skills are available?" didn't list it. Claude can't pick a skill whose description it never sees. <code>user-invocable: false</code> is the reverse: Claude only.</div>
+</div>
+
+<div class="quiz" data-answer="a">
+  <p class="q">3. When does <code>!`New-Guid`</code> in SKILL.md run?</p>
+  <div class="options">
+    <button data-key="a">Before Claude sees the skill; its output replaces the line</button>
+    <button data-key="b">When Claude chooses to, as a normal PowerShell tool call</button>
+    <button data-key="c">Once at session start, then cached for every later invocation</button>
+    <button data-key="d">Only after you approve it, even when in auto mode</button>
+  </div>
+  <div class="feedback" data-for="a">It's preprocessing. Claude Code runs it at invocation, and Claude only ever sees the result. Each invocation runs it again, so every measure gets a fresh GUID.</div>
+</div>
+
+<div class="quiz" data-answer="a">
+  <p class="q">4. Your SKILL.md says <q>Flag measures that could exceed $1 million.</q> You run <code>/add-measure Total Cost</code>. What does Claude read?</p>
+  <div class="options">
+    <button data-key="a">"exceed Cost million", because $1 is the second argument here</button>
+    <button data-key="b">"exceed $1 million", because dollars in plain prose stay untouched</button>
+    <button data-key="c">"exceed million", because unmatched placeholders are always replaced with nothing</button>
+    <button data-key="d">Nothing; the skill fails, because numbered placeholders need declaring first</button>
+  </div>
+  <div class="feedback" data-for="a">Unquoted, <code>Total Cost</code> is two arguments: <code>$0</code> = Total, <code>$1</code> = Cost. Write <code>\$1</code> for a literal dollar sign. <code>\$#,0.00</code> survived my test, but don't rely on that pattern near digits.</div>
+</div>
+
+<div class="quiz" data-answer="a">
+  <p class="q">5. What does <code>allowed-tools: [PowerShell(New-Guid)]</code> do?</p>
+  <div class="options">
+    <button data-key="a">Pre-approves New-Guid for this turn; other tools stay available</button>
+    <button data-key="b">Restricts Claude to New-Guid only while the skill stays active</button>
+    <button data-key="c">Adds New-Guid permanently to every teammate's allow list in settings</button>
+    <button data-key="d">Lets New-Guid run even when a deny rule blocks it</button>
+  </div>
+  <div class="feedback" data-for="a">It's a temporary allow, and it clears on your next message. To <em>remove</em> tools while a skill runs, use <code>disallowed-tools</code>. Deny rules still win, as always.</div>
+</div>
+
+<div class="quiz" data-answer="a">
+  <p class="q">6. A teammate in manual mode runs your skill, but <code>allowed-tools</code> is missing. What happens?</p>
+  <div class="options">
+    <button data-key="a">The whole invocation aborts before Claude sees any of it</button>
+    <button data-key="b">They get a prompt to approve New-Guid, then it continues</button>
+    <button data-key="c">Claude sees the skill with the GUID line left empty</button>
+    <button data-key="d">Claude runs New-Guid itself later as a normal tool call</button>
+  </div>
+  <div class="feedback" data-for="a">In my v2.1.302 test it aborted with no message, and the reason was only in the debug log. You're in auto mode, so you'd never see this yourself. That's why the team version needs <code>allowed-tools</code>, and why Lesson 10's CI checks matter.</div>
+</div>
+
+<div class="quiz" data-answer="a">
+  <p class="q">7. <q>Every measure needs a displayFolder: General, Sales, or Product.</q> Where should that line live?</p>
+  <div class="options">
+    <button data-key="a">The tmdl.md rule, so every TMDL edit gets it</button>
+    <button data-key="b">The SKILL.md body, so it loads only when adding</button>
+    <button data-key="c">A settings.json deny rule, so Claude Code enforces it</button>
+    <button data-key="d">The skill's description, so Claude always sees it there</button>
+  </div>
+  <div class="feedback" data-for="a">It's a convention, not a step. It should also apply when Claude renames or moves a measure without the skill. Permission rules match tools and paths, not TMDL content. Checking content automatically is a hook's job (Lesson 6).</div>
+</div>
+
+<div class="quiz" data-answer="a">
+  <p class="q">8. You invoked <code>/add-measure</code>, then fixed a step in SKILL.md. Your next message says "continue". Which version does Claude follow?</p>
+  <div class="options">
+    <button data-key="a">The old one, until you invoke the skill again</button>
+    <button data-key="b">The new one, because Claude Code watches skill files</button>
+    <button data-key="c">Both versions, merged, with the newer step taking priority</button>
+    <button data-key="d">Neither; editing a loaded skill cancels it this session</button>
+  </div>
+  <div class="feedback" data-for="a">Watching the folder updates the skill <em>listing</em> and future invocations. The copy already in the conversation stays as it is, because Claude Code <q>does not re-read the skill file on later turns</q>.</div>
+</div>
+
+<div class="recall">
+  <p class="prompt"><strong>Write it out:</strong> frontmatter for a <code>/document-model</code> skill that only <em>you</em> can invoke, shows <code>[table name]</code> as a hint, and runs its <code>!`…`</code> lines in PowerShell. Then say in one sentence why the add-measure steps belong in a skill and not in CLAUDE.md.</p>
+  <div class="model">
+<pre><code>---
+name: document-model
+description: Writes a markdown summary of one table's measures and columns. Use when I ask to document the model.
+argument-hint: "[table name]"
+disable-model-invocation: true
+shell: powershell
+---</code></pre>
+    <p>CLAUDE.md is loaded in full every session, even when you're editing a visual. A skill costs only its description until someone needs it, and then the steps arrive together, in order.</p>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<h2>Go deeper</h2>
+<p><strong>Primary source:</strong> <a href="https://code.claude.com/docs/en/skills">Extend Claude with skills</a> (Claude Code docs). Read "Where skills live", "Frontmatter reference", "Available string substitutions", "Inject dynamic context", and "Troubleshooting". Skip <code>context: fork</code> for now. It returns with subagents in Lesson 8.</p>
+<p>For writing good descriptions and steps: <a href="https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices">Skill authoring best practices</a> (Anthropic). For comparison, look at Microsoft's own PBIR skill in <a href="https://github.com/microsoft/skills-for-fabric">skills-for-fabric</a>. You'll install it in Lesson 9.</p>
+<p>Reference sheets: <a href="../reference/skills.html">Skills</a> · <a href="../reference/rules.html">Rules</a> · <a href="../reference/settings-permissions.html">Settings &amp; permissions</a> · <a href="../reference/glossary.html">Glossary</a>.</p>
+
+<div class="callout">
+  <span class="label">Ask your teacher</span>
+  Ask me anything in this session, for example <q>check my SKILL.md</q>, <q>why didn't Claude pick my skill?</q>, or <q>should this be a skill or a rule?</q> Then tell me: in step 6, did Claude stop? In step 7, did Desktop apply <em>Total Cost</em> cleanly? In step 8, did Claude use the skill and catch <code>Total Sales</code>? And in step 9, why is the default right for <code>/add-measure</code>?
+</div>
+
+<nav class="lesson-nav">
+  <a href="0003-permissions-enforce-the-never-list.html">← Lesson 3: Permissions</a>
+  <a href="0005-hooks-block-edits-while-pending.html">Lesson 5: Hooks I →</a>
+</nav>
+
+</main>
+<script src="../assets/components.js"></script>
+</body>
+</html>

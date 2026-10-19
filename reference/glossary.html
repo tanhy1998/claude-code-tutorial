@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reference · Glossary</title>
+<link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+<main>
+<nav class="crumbs"><a href="../index.html">Course map</a> · Reference · Glossary</nav>
+
+<p class="kicker">Reference</p>
+<h1>Glossary</h1>
+<p class="subtitle">The course uses these words with exactly these meanings. Terms are added as lessons introduce them.</p>
+
+<table>
+  <tr><th>Term</th><th>Meaning</th><th>Lesson</th></tr>
+  <tr><td><strong>Context window</strong></td><td>Everything Claude can see in a session: system prompt, memory files, conversation, tool results. Each session starts with a fresh one.</td><td>1</td></tr>
+  <tr><td><strong>Memory file</strong></td><td>A file Claude Code loads into context for you: CLAUDE.md, CLAUDE.local.md, AGENTS.md, rule files. Listed under <em>Memory files</em> in <code>/context</code>.</td><td>1</td></tr>
+  <tr><td><strong>CLAUDE.md</strong></td><td>Instructions <em>you</em> write that Claude reads at the start of every session. Context, not enforcement.</td><td>1</td></tr>
+  <tr><td><strong>Auto memory</strong></td><td>Notes <em>Claude</em> writes for itself from your corrections. Not covered yet.</td><td>1</td></tr>
+  <tr><td><strong>Scope</strong></td><td>Who an instruction reaches and where: managed (org), user (you, all projects), project (team via git), local (you, this project).</td><td>1</td></tr>
+  <tr><td><strong>AGENTS.md</strong></td><td>Cross-tool instruction file. Claude reads it only when there's no CLAUDE.md, unless CLAUDE.md imports it with <code>@AGENTS.md</code>.</td><td>1</td></tr>
+  <tr><td><strong>Import</strong></td><td><code>@path</code> inside a memory file. Pulls another file in at launch. Organises, but doesn't save context.</td><td>1</td></tr>
+  <tr><td><strong>Context vs enforcement</strong></td><td><em>Context</em> is text Claude chooses to follow (CLAUDE.md, rules, skills). <em>Enforcement</em> is something the harness makes happen regardless (hooks, permissions).</td><td>1</td></tr>
+  <tr><td><strong>Rule</strong></td><td>A markdown file in <code>.claude/rules/</code> (or <code>~/.claude/rules/</code>). Without <code>paths</code>, it behaves like CLAUDE.md.</td><td>2</td></tr>
+  <tr><td><strong>Path-scoped rule</strong></td><td>A rule with <code>paths:</code> frontmatter. It loads only when Claude reads, writes, or edits a matching file.</td><td>2</td></tr>
+  <tr><td><strong>Frontmatter</strong></td><td>The YAML block between <code>---</code> lines at the top of a markdown file. It's configuration that Claude Code removes before the file reaches Claude.</td><td>2</td></tr>
+  <tr><td><strong>Glob</strong></td><td>A file-matching pattern. <code>*</code> = any characters within one folder; <code>**/</code> = any depth of folders; <code>{a,b}</code> = either.</td><td>2</td></tr>
+  <tr><td><strong>On-demand loading</strong></td><td>A memory file that isn't loaded at launch, but only once Claude touches a relevant file (path rules, subdirectory CLAUDE.md).</td><td>2</td></tr>
+  <tr><td><strong>Canary</strong></td><td>A temporary, harmless instruction (e.g. "end replies with (tmdl rule)") whose visible effect proves a file loaded.</td><td>2</td></tr>
+  <tr><td><strong>Settings file</strong></td><td>A JSON config file Claude Code reads (not Claude): managed, <code>--settings</code>, <code>.claude/settings.local.json</code>, <code>.claude/settings.json</code>, <code>~/.claude/settings.json</code>, from highest precedence to lowest.</td><td>3</td></tr>
+  <tr><td><strong>Precedence</strong></td><td>Which file wins when several set the same single value. Lists merge instead. Permission rules ignore precedence: a deny from any file wins.</td><td>3</td></tr>
+  <tr><td><strong>Permission rule</strong></td><td><code>Tool</code> or <code>Tool(specifier)</code> in an <code>allow</code>, <code>ask</code>, or <code>deny</code> list. Checked deny → ask → allow; the first match wins. Enforced by Claude Code.</td><td>3</td></tr>
+  <tr><td><strong>Permission mode</strong></td><td>The baseline for what runs without a prompt: Manual (<code>default</code>), <code>acceptEdits</code>, <code>plan</code>, <code>auto</code>, <code>dontAsk</code>, <code>bypassPermissions</code>. Rules sit on top of it.</td><td>3</td></tr>
+  <tr><td><strong>Auto mode / classifier</strong></td><td>A mode in which a second model (the classifier) reviews shell and network actions instead of asking you. Reads and in-folder edits are auto-approved. The built-in default since v2.1.283.</td><td>3</td></tr>
+  <tr><td><strong>Anchored pattern</strong></td><td>A path rule that matches only at one location (e.g. <code>.pbi/cache.abf</code> = launch folder only), as opposed to any depth (<code>**/.pbi/cache.abf</code>, or a bare file name).</td><td>3</td></tr>
+  <tr><td><strong>Protected path</strong></td><td>A path whose writes are never auto-approved, except in bypass mode: <code>.git</code>, <code>.claude</code>, <code>.vscode</code>, <code>.mcp.json</code>, shell rc files…</td><td>3</td></tr>
+  <tr><td><strong>Workspace trust</strong></td><td>The "trust this folder?" dialog. A repo's <code>allow</code> rules and settings-file hooks wait for it; <code>deny</code>/<code>ask</code> rules don't. <code>claude -p</code> skips the dialog and treats the folder as trusted.</td><td>3, 5</td></tr>
+  <tr><td><strong>Skill</strong></td><td>A folder with a <code>SKILL.md</code>: frontmatter plus a procedure. Its description is always in context. The body loads only when invoked (<code>/name</code>, or Claude matching the description).</td><td>4</td></tr>
+  <tr><td><strong>Invoke</strong></td><td>Load a skill's body into the conversation, either by you typing <code>/name</code> or by Claude choosing it. The text then stays put and isn't re-read.</td><td>4</td></tr>
+  <tr><td><strong>Invocation control</strong></td><td>Who may invoke a skill: <code>disable-model-invocation: true</code> = you only (description hidden from Claude); <code>user-invocable: false</code> = Claude only.</td><td>4</td></tr>
+  <tr><td><strong>Dynamic context injection</strong></td><td>A <code>!`command`</code> line in a skill. Claude Code runs it before Claude reads the skill and pastes in the output. Failures and unapproved commands abort the invocation.</td><td>4</td></tr>
+  <tr><td><strong>Argument placeholder</strong></td><td><code>$ARGUMENTS</code> (all), <code>$0</code>/<code>$1</code>… (one each), <code>$name</code> (named). Any <code>$</code> + digit is a placeholder; escape a literal with <code>\$</code>.</td><td>4</td></tr>
+  <tr><td><strong>Supporting file</strong></td><td>Any other file in a skill's folder. It loads only when SKILL.md sends Claude to read it.</td><td>4</td></tr>
+  <tr><td><strong>Hook</strong></td><td>A command (or HTTP call, prompt, agent) that Claude Code runs at a fixed lifecycle event. Enforcement, not context: it runs whether or not Claude would choose to.</td><td>5</td></tr>
+  <tr><td><strong>Hook event</strong></td><td>The lifecycle point a hook is attached to: <code>PreToolUse</code>, <code>PostToolUse</code>, <code>SessionStart</code>, <code>Stop</code>, <code>InstructionsLoaded</code>…</td><td>5</td></tr>
+  <tr><td><strong>PreToolUse</strong></td><td>The event after Claude picks a tool call and before it runs, ahead of permission rules and modes. Exit 2 blocks the call.</td><td>5</td></tr>
+  <tr><td><strong>Matcher</strong></td><td>The hook-group filter on tool name: <code>Edit|Write|PowerShell</code>. Case-sensitive. Other characters turn it into a regex.</td><td>5</td></tr>
+  <tr><td><strong>Exec form / shell form</strong></td><td>Exec form: <code>command</code> + <code>args</code>, with the .exe spawned directly. Shell form: <code>command</code> only, run by Git Bash or PowerShell (<code>shell</code>).</td><td>5</td></tr>
+  <tr><td><strong>Fail open / fail closed</strong></td><td>What a guard does when it breaks itself. Open = the action goes ahead (the PreToolUse default for crashes). Closed = it's blocked (<code>"onFailure": "block"</code>).</td><td>5</td></tr>
+  <tr><td><strong>PostToolUse</strong></td><td>The event right after a tool call <em>succeeds</em>. It can't block or undo anything. Exit 2 sends your stderr to Claude so it can fix what the tool did.</td><td>6</td></tr>
+  <tr><td><strong>BOM</strong></td><td>Byte order mark: the bytes <code>EF BB BF</code> at the start of a UTF-8 file. PBIP files must not have one. UTF-16 files start with <code>FF FE</code>.</td><td>6</td></tr>
+  <tr><td><strong>CRLF / LF</strong></td><td>Windows line endings (<code>\r\n</code>) vs Unix (<code>\n</code>). Power BI Desktop writes CRLF, so mixing in LF makes noisy diffs.</td><td>6</td></tr>
+</table>
+
+</main>
+</body>
+</html>

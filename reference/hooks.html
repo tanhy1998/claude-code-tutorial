@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reference · Hooks</title>
+<link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+<main>
+<nav class="crumbs"><a href="../index.html">Course map</a> · Reference · taught in <a href="../lessons/0005-hooks-block-edits-while-pending.html">Lesson 5</a> · <a href="glossary.html">Glossary</a></nav>
+
+<p class="kicker">Reference</p>
+<h1>Hooks</h1>
+<p class="subtitle">One page. Sources: <a href="https://code.claude.com/docs/en/hooks-guide">hooks guide</a> and <a href="https://code.claude.com/docs/en/hooks">hooks reference</a> (checked 2026-10-18, Claude Code v2.1.302). Lines marked <em>tested</em> are from my own runs on that version, on Windows PowerShell 5.1.</p>
+
+<h2>Where a PreToolUse hook sits</h2>
+<div class="tree">Claude picks a tool call
+  → <span class="hl">PreToolUse hooks</span>   (exit 2 = block, stderr → Claude)
+  → permission rules  deny → ask → allow
+  → permission mode
+  → tool runs
+  → PostToolUse hooks (can't undo; Lesson 6)</div>
+<ul>
+  <li>A hook block beats every mode, including <code>bypassPermissions</code>. <em>Tested.</em></li>
+  <li>A hook's <code>"allow"</code> <strong>doesn't</strong> beat a deny rule. Hooks only tighten.</li>
+  <li>Skill <code>!`…`</code> lines aren't tool calls, so PreToolUse doesn't see them. <em>Tested.</em></li>
+</ul>
+
+<h2>Config shape (in any settings file)</h2>
+<pre><code>"hooks": {
+  "PreToolUse": [
+    { "matcher": "Edit|Write|PowerShell|Bash",
+      "hooks": [
+        { "type": "command",
+          "command": "powershell.exe",
+          "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+                   "${CLAUDE_PROJECT_DIR}/.claude/hooks/NAME.ps1"],
+          "onFailure": "block" } ] } ] }</code></pre>
+<table>
+  <tr><th>Field</th><th>Does</th></tr>
+  <tr><td><code>matcher</code></td><td>Tool names, case-sensitive. <code>A|B</code> or <code>A, B</code> = exact names. Any other characters make it a regex, so <code>Edit.*</code> also matches <code>NotebookEdit</code></td></tr>
+  <tr><td><code>if</code></td><td>One permission-rule pattern to narrow it further, e.g. <code>"Edit(**/*.tmdl)"</code>. <em>Tested:</em> <code>Edit(…)</code> here fired for Edit but <strong>not</strong> for Write. Best effort, so don't use it to enforce anything</td></tr>
+  <tr><td><code>command</code> + <code>args</code></td><td><strong>Exec form</strong>: spawns the .exe directly, with no shell and no quoting worries</td></tr>
+  <tr><td><code>command</code> alone (+ <code>shell</code>)</td><td><strong>Shell form</strong>: Git Bash by default on Windows; <code>"shell": "powershell"</code> to switch</td></tr>
+  <tr><td><code>onFailure</code></td><td><code>"block"</code>: a crash, timeout, or exit other than 0/2 blocks the call (v2.1.295+)</td></tr>
+  <tr><td><code>timeout</code></td><td>Seconds. Default 600 for command hooks</td></tr>
+</table>
+<h3>Where to find tool names for a matcher</h3>
+<ul>
+  <li><strong>Built-in tools:</strong> the table in the <a href="https://code.claude.com/docs/en/tools-reference">Tools reference</a>. Its names are <q>the exact strings you use in permission rules, subagent tool lists, and hook matchers.</q></li>
+  <li><strong>MCP tools:</strong> <code>mcp__&lt;server&gt;__&lt;tool&gt;</code>. Run <code>/mcp</code> to see exact names. Matching a whole server needs the <code>.*</code>: <code>mcp__powerbi__.*</code> works, but <code>mcp__powerbi</code> matches nothing (<a href="https://code.claude.com/docs/en/hooks#matcher-patterns">matcher patterns</a>).</li>
+  <li><strong>This session:</strong> ask <q>What tools do you have access to?</q> The set depends on platform, model, and settings.</li>
+  <li><strong>What Claude actually calls:</strong> use the <code>tool_name</code> field in the hook's stdin. A <code>"*"</code> matcher that logs it shows you every tool Claude uses.</li>
+</ul>
+<p><strong>Tools that can change a file:</strong> <code>Edit</code> · <code>Write</code> · <code>NotebookEdit</code> · <code>PowerShell</code> · <code>Bash</code> · <code>Monitor</code> (runs commands; uses the same rule format as <code>Bash</code>) · any MCP tool that writes. Matchers take <em>bare</em> names. <code>Edit(…)</code> belongs in <code>if</code> or in permissions, never in <code>matcher</code>.</p>
+<p>Locations: <code>~/.claude/settings.json</code> (you) · <code>.claude/settings.json</code> (team) · <code>.claude/settings.local.json</code> (you, this repo) · plugin <code>hooks/hooks.json</code> · skill or agent frontmatter. A handler that's the same in several settings files runs once.</p>
+
+<h2>Exit codes (PreToolUse)</h2>
+<table>
+  <tr><th>Exit</th><th>Call</th><th>Message</th></tr>
+  <tr><td>0</td><td>Continues to the normal permission flow</td><td>stderr is never shown to Claude</td></tr>
+  <tr><td><strong>2</strong></td><td><strong>Blocked</strong></td><td><strong>stderr → Claude</strong> as the reason</td></tr>
+  <tr><td>other</td><td>Continues (non-blocking error), unless <code>onFailure: "block"</code></td><td><code>hook error</code> notice, first line of stderr</td></tr>
+</table>
+<p>JSON form (exit 0, stdout): <code>{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "…"}}</code>. The values are <code>allow</code>, <code>deny</code>, <code>ask</code>, and <code>defer</code> (<code>-p</code> only). Pick exit 2 <em>or</em> JSON, not both.</p>
+
+<h2>Exit codes (PostToolUse)</h2>
+<p>Fires only after a tool <em>succeeds</em>. It can't block or undo: the file is already on disk. Tested on v2.1.303.</p>
+<table>
+  <tr><th>Exit</th><th>Effect</th></tr>
+  <tr><td>0</td><td>Nothing reaches Claude</td></tr>
+  <tr><td><strong>2</strong></td><td><strong>stderr → Claude</strong>, next to the tool result. Use this to make Claude fix what the tool did</td></tr>
+  <tr><td>other</td><td>A notice for you. <strong>Claude sees nothing</strong> (tested)</td></tr>
+</table>
+<p>No <code>onFailure</code>: it only matters for blocking. Shell commands don't name their files, so ask git: <code>git -c core.quotepath=off status --porcelain --untracked-files=all -- '*.tmdl'</code>. Check the bytes <em>on disk</em>: with autocrlf, git stores LF.</p>
+
+<h2>What writes what (Windows PowerShell 5.1, tested)</h2>
+<table>
+  <tr><th>Write path</th><th>Result</th></tr>
+  <tr><td>Edit (existing file)</td><td>Keeps CRLF and keeps any existing BOM</td></tr>
+  <tr><td>Write (new file)</td><td>UTF-8 without BOM, but <strong>LF</strong></td></tr>
+  <tr><td><code>Set-Content</code> / <code>Add-Content</code></td><td><strong>ANSI</strong> (<code>é</code> = <code>E9</code>)</td></tr>
+  <tr><td><code>Out-File</code> / <code>&gt;</code></td><td><strong>UTF-16 LE</strong>, <code>FF FE</code></td></tr>
+  <tr><td><code>[IO.File]::WriteAllText(p, t)</code></td><td>UTF-8 without BOM ✅</td></tr>
+</table>
+
+<h2>Stdin (what the script gets)</h2>
+<table>
+  <tr><th>Tool</th><th><code>tool_input</code></th></tr>
+  <tr><td>Edit</td><td><code>file_path</code> (absolute), <code>old_string</code>, <code>new_string</code>, <code>replace_all</code></td></tr>
+  <tr><td>Write</td><td><code>file_path</code>, <code>content</code></td></tr>
+  <tr><td>PowerShell / Bash</td><td><code>command</code> (just text), <code>description</code>, <code>timeout</code></td></tr>
+</table>
+<p>Also in the input: <code>tool_name</code>, <code>cwd</code>, <code>permission_mode</code>, <code>session_id</code>, <code>transcript_path</code>. In PowerShell: <code>$call = [Console]::In.ReadToEnd() | ConvertFrom-Json</code>.</p>
+
+<h2>Windows PowerShell 5.1 traps (all tested)</h2>
+<ol>
+  <li>Errors don't stop a script by default, so a broken parse can exit 0. Put <code>$ErrorActionPreference = "Stop"</code> first and set <code>onFailure: "block"</code>.</li>
+  <li>Shell form <code>&amp; "script.ps1"</code> turns the script's <code>exit 2</code> into status 1. Use exec form with <code>-File</code>.</li>
+  <li>A typo in the <code>-File</code> path shows as <code>finished with status 0</code>, so it <strong>fails open even with onFailure</strong>. Re-test the block after every config change.</li>
+  <li>Keep scripts ASCII. 5.1 reads a BOM-less <code>.ps1</code> as ANSI.</li>
+  <li>Write the reason with <code>[Console]::Error.WriteLine("…")</code>. <code>Write-Error</code> wraps it in noise.</li>
+  <li>Never put a bare <code>$CLAUDE_PROJECT_DIR</code> in a shell-form PowerShell command, because it resolves to <code>$null</code>. Use <code>${CLAUDE_PROJECT_DIR}</code> or <code>$env:CLAUDE_PROJECT_DIR</code>.</li>
+</ol>
+
+<h2>Test and debug</h2>
+<pre><code># unit test, no Claude: pipe JSON in, read the exit code
+'{"tool_name":"Edit","tool_input":{"file_path":"C:\\x\\a.tmdl"}}' |
+  powershell -NoProfile -ExecutionPolicy Bypass -File .claude\hooks\NAME.ps1; $LASTEXITCODE
+
+/hooks                                # in Claude: is it listed, under the right event?
+claude --debug-file hooks.log         # then search: "Hooks: PreToolUse"
+                                      # → "… finished with status 2 (480ms)"</code></pre>
+<p>If <code>/hooks</code> shows nothing: check the JSON is valid (no trailing commas or comments) and the file location, then restart the session. Settings-file hooks don't run in an interactive session until the folder is trusted. In <code>claude -p</code>, a repo's hooks run without asking.</p>
+
+<h2>Hook, rule, or CLAUDE.md?</h2>
+<table>
+  <tr><th>You need</th><th>Use</th></tr>
+  <tr><td>Claude should know why</td><td>CLAUDE.md / rule (context)</td></tr>
+  <tr><td>A fixed path or command is never allowed</td><td><code>deny</code> rule</td></tr>
+  <tr><td>Blocked <em>only when</em> something is true (a file exists, a branch, a time)</td><td>PreToolUse hook</td></tr>
+  <tr><td>Check or fix what was just written</td><td>PostToolUse hook (Lesson 6)</td></tr>
+  <tr><td>Even scripts must not reach it</td><td>Sandbox / OS isolation</td></tr>
+</table>
+
+<h2>The lab's hooks</h2>
+<pre><span class="file">lab\.claude\hooks\block-unapplied.ps1</span><code>$ErrorActionPreference = "Stop"
+$call = [Console]::In.ReadToEnd() | ConvertFrom-Json
+$target = if ($call.tool_input.file_path) { $call.tool_input.file_path } else { $call.tool_input.command }
+if ($target -notmatch '\.tmdl|\.SemanticModel[\\/]definition') { exit 0 }
+$pending = Get-ChildItem "$env:CLAUDE_PROJECT_DIR\*.SemanticModel\.pbi\unappliedChanges.json" -ErrorAction SilentlyContinue
+if (-not $pending) { exit 0 }
+[Console]::Error.WriteLine("Blocked by hook: … Ask the user to apply or discard the pending changes in Power BI Desktop first.")
+exit 2</code></pre>
+<p><strong>PostToolUse:</strong> <code>lab.claudehookscheck-tmdl.ps1</code> (Lesson 6) reports UTF-16, BOM, ANSI, and LF in any changed <code>.tmdl</code> and exits 2.</p>
+<p>Why the PreToolUse one: Desktop overwrites external query edits when it applies <code>unappliedChanges.json</code> (<a href="https://learn.microsoft.com/en-us/power-bi/developer/projects/projects-dataset#pbiunappliedchangesjson">Microsoft Learn</a>).</p>
+
+<p class="marginnote">Also see <a href="settings-permissions.html">Settings &amp; permissions</a> · <a href="skills.html">Skills</a> · <a href="https://code.claude.com/docs/en/hooks#security-considerations">Hook security considerations</a>.</p>
+
+</main>
+</body>
+</html>

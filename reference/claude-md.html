@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reference · CLAUDE.md &amp; memory</title>
+<link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+<main>
+<nav class="crumbs"><a href="../index.html">Course map</a> · Reference · taught in <a href="../lessons/0001-claude-md-for-a-pbip-repo.html">Lesson 1</a></nav>
+
+<p class="kicker">Reference</p>
+<h1>CLAUDE.md &amp; memory</h1>
+<p class="subtitle">One page. Source: <a href="https://code.claude.com/docs/en/memory">code.claude.com/docs/en/memory</a> (checked 2026-10-15, Claude Code v2.1.300).</p>
+
+<h2>Scopes</h2>
+<table class="wide">
+  <tr><th>Scope</th><th>File</th><th>Reaches</th><th>Use for</th></tr>
+  <tr><td>Managed</td><td><code>C:\Program Files\ClaudeCode\CLAUDE.md</code></td><td>Whole org (IT deploys; can't be excluded)</td><td>Compliance, data-handling reminders</td></tr>
+  <tr><td>User</td><td><code>~\.claude\CLAUDE.md</code> (+ <code>~\.claude\rules\</code>)</td><td>You, every project</td><td>Personal style and preferences</td></tr>
+  <tr><td>Project</td><td><code>.\CLAUDE.md</code> or <code>.\.claude\CLAUDE.md</code></td><td>Team, via git</td><td>Repo layout, conventions, "never do X"</td></tr>
+  <tr><td>Local</td><td><code>.\CLAUDE.local.md</code> (gitignore it)</td><td>You, this project</td><td>Your sandbox/workspace names, test data</td></tr>
+</table>
+
+<h2>Load rules</h2>
+<ol>
+  <li><strong>At launch:</strong> every <code>CLAUDE.md</code> and <code>CLAUDE.local.md</code> in the working directory <em>and all ancestors</em>.</li>
+  <li><strong>Concatenated, never overridden.</strong> Order: managed → user → root … → working directory. In each directory, <code>.local</code> comes after <code>CLAUDE.md</code>. The nearest file is read last.</li>
+  <li><strong>Subdirectory</strong> CLAUDE.md files load <em>on demand</em>, when Claude reads or edits a file in that subdirectory.</li>
+  <li><strong>After <code>/compact</code>:</strong> the project-root CLAUDE.md is re-read from disk. Nested files reload on demand.</li>
+  <li>Conflicting instructions → Claude <q>may pick one arbitrarily</q>. Remove conflicts.</li>
+  <li>It's <strong>context, not enforcement</strong>. Hard guarantees need a PreToolUse hook.</li>
+</ol>
+
+<h2>Syntax</h2>
+<pre><span class="file">CLAUDE.md</span><code># Project
+See @README.md for overview.          ← @import, relative to THIS file; max 4 hops deep
+- @~/.claude/my-pbip-prefs.md        ← home-dir import (shared across worktrees)
+
+&lt;!-- maintainer note: stripped before Claude sees it (block-level only) --&gt;
+
+## PBIP rules
+- NEVER edit `diagramLayout.json`     ← concrete, checkable instruction</code></pre>
+<p>Imports organise the file; they don't reduce context cost, because imported files load at launch too.</p>
+
+<h2>AGENTS.md</h2>
+<p>Read natively since <strong>v2.1.277</strong>. Default is <em>either/or</em>, not both (<a href="https://code.claude.com/docs/en/memory#agents-md">docs</a>):</p>
+<table>
+  <tr><th>Repo has</th><th>Claude loads</th></tr>
+  <tr><td><code>AGENTS.md</code> only</td><td><code>AGENTS.md</code></td></tr>
+  <tr><td><code>AGENTS.md</code> + <code>CLAUDE.md</code> (or <code>CLAUDE.local.md</code>) here or above</td><td><code>CLAUDE.md</code> only. AGENTS.md is ignored.</td></tr>
+  <tr><td><code>CLAUDE.md</code> containing <code>@AGENTS.md</code></td><td>Both. AGENTS.md comes in through the import.</td></tr>
+</table>
+<ul>
+  <li><code>~/.claude/CLAUDE.md</code>, managed CLAUDE.md and <code>.claude/rules/</code> <em>don't</em> block AGENTS.md.</li>
+  <li>To load both without an import, set <code>/config</code> → Project instructions → <code>claude-md-and-agents-md</code>.</li>
+  <li>Not read: <code>AGENTS.local.md</code>, <code>AGENTS.override.md</code>, <code>.agents/</code>.</li>
+  <li><strong>Windows/team:</strong> use <code>@AGENTS.md</code> import, not a symlink.</li>
+</ul>
+
+<h2>Commands</h2>
+<table>
+  <tr><th>Command</th><th>Use it to…</th></tr>
+  <tr><td><code>/init</code></td><td>Generate a starter CLAUDE.md, or get improvement suggestions for an existing one</td></tr>
+  <tr><td><code>/context</code></td><td>Check what actually loaded (see <em>Memory files</em>)</td></tr>
+  <tr><td><code>/memory</code></td><td>List and open memory locations; toggle auto memory</td></tr>
+  <tr><td><code>/doctor prompt-audit</code></td><td>Find conflicting, stale, or bloated instructions (v2.1.283+)</td></tr>
+  <tr><td><code>claude --debug</code></td><td>See why rule frontmatter failed to parse</td></tr>
+</table>
+
+<h2>Writing checklist</h2>
+<ul>
+  <li>Under <strong>200 lines</strong> per file. Files over 4 MiB are skipped.</li>
+  <li>Concrete and checkable: "UTF-8 without BOM", not "careful with encoding".</li>
+  <li>Headers and bullets, not dense paragraphs.</li>
+  <li>Add a line when Claude makes the same mistake twice, or review catches something it should have known.</li>
+  <li>Procedures → <strong>skill</strong>. Part-of-repo guidance → <strong>path-scoped rule</strong>. Must-never-happen → <strong>hook</strong>.</li>
+</ul>
+
+<h2>PBIP starter block</h2>
+<pre><code>## PBIP rules
+- Semantic model = TMDL in `*.SemanticModel/definition/`. Report = PBIR JSON in `*.Report/definition/`.
+- NEVER edit: `definition.pbir`, `report.json`, `mobileState.json`,
+  `semanticModelDiagramLayout.json`, `diagramLayout.json`.
+- NEVER read or edit `.pbi/` (`cache.abf`, `localSettings.json`).
+- UTF-8 without BOM. CRLF line endings.
+- Before editing: ask me to Save in Desktop. After: tell me to click "Apply external changes".
+- If `.pbi/unappliedChanges.json` exists, stop and ask me to apply pending changes first.</code></pre>
+<p class="marginnote">From Microsoft Learn: <a href="https://learn.microsoft.com/en-us/power-bi/developer/projects/projects-overview">PBIP overview</a> · <a href="https://learn.microsoft.com/en-us/power-bi/developer/projects/projects-external-editing">External editing</a>.</p>
+
+</main>
+</body>
+</html>

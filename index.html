@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude Code for PBIP · Course map</title>
+<link rel="stylesheet" href="assets/course.css">
+</head>
+<body>
+<main>
+<p class="kicker">Course map</p>
+<h1>Claude Code for Power BI projects</h1>
+<p class="subtitle">From hand-written CLAUDE.md to a team-ready PBIP plugin.</p>
+
+<div class="callout mission">
+  <span class="label">Mission</span>
+  Speed up my Power BI work and give my team an AI-assisted PBIP workflow they can clone. Prove it on a dummy project, then take it to work. <a href="MISSION.md">MISSION.md</a>
+</div>
+
+<p>The order follows the docs' advice to <a href="https://code.claude.com/docs/en/features-overview#build-your-setup-over-time">build your setup over time</a>: start with always-on context, then add on-demand knowledge, then automation and enforcement, then packaging. Each lesson adds one piece to the same <code>lab\</code> repo. The capstone puts them all together.</p>
+
+<h2>Lessons</h2>
+<ul class="lesson-list">
+  <li><span class="num">01</span><a href="lessons/0001-claude-md-for-a-pbip-repo.html">CLAUDE.md: brief Claude on your PBIP repo once</a><span class="status ready">ready</span></li>
+  <li><span class="num">02</span><a href="lessons/0002-path-scoped-rules-tmdl-vs-pbir.html">Rules: different instructions for TMDL vs PBIR files</a><span class="status ready">ready</span></li>
+  <li><span class="num">03</span><a href="lessons/0003-permissions-enforce-the-never-list.html">Permissions: make Claude Code enforce your NEVER list</a><span class="status ready">ready</span></li>
+  <li><span class="num">04</span><a href="lessons/0004-skills-add-measure.html">Skills: turn "add a measure properly" into <code>/add-measure</code></a><span class="status ready">ready</span></li>
+  <li><span class="num">05</span><a href="lessons/0005-hooks-block-edits-while-pending.html">Hooks I: block model edits while Desktop has pending changes</a><span class="status ready">ready</span></li>
+  <li><span class="num">06</span><a href="lessons/0006-hooks-check-every-tmdl-write.html">Hooks II: check every TMDL write (PostToolUse)</a><span class="status ready">ready</span></li>
+  <li><span class="num">07</span><span>MCP: connect the Power BI Authoring MCP server (+ Desktop Bridge reload)</span><span class="status">planned</span></li>
+  <li><span class="num">08</span><span>Subagents: a DAX reviewer with its own context</span><span class="status">planned</span></li>
+  <li><span class="num">09</span><span>Plugins &amp; marketplaces: install Microsoft's, then package yours</span><span class="status">planned</span></li>
+  <li><span class="num">10</span><span>Headless &amp; CI: <code>claude -p</code> checks on every PBIP pull request</span><span class="status">planned</span></li>
+  <li><span class="num">11</span><span>Parallel work, output styles &amp; status line</span><span class="status">planned</span></li>
+  <li><span class="num">★</span><span>Capstone: the team PBIP toolkit</span><span class="status">planned</span></li>
+</ul>
+<p class="marginnote">The plan adapts to how each lesson goes. Planned lessons may merge, split, or change order.</p>
+
+<h2>Reference</h2>
+<ul>
+  <li><a href="reference/claude-md.html">CLAUDE.md &amp; memory</a></li>
+  <li><a href="reference/rules.html">Rules (.claude/rules/)</a></li>
+  <li><a href="reference/settings-permissions.html">Settings &amp; permissions</a></li>
+  <li><a href="reference/skills.html">Skills (.claude/skills/)</a></li>
+  <li><a href="reference/hooks.html">Hooks</a></li>
+  <li><a href="reference/glossary.html">Glossary</a></li>
+</ul>
+
+<h2>Workspace</h2>
+<ul>
+  <li><a href="RESOURCES.md">RESOURCES.md</a>: trusted sources and communities</li>
+  <li><code>lab\</code>: your practice PBIP repo · <code>lab\data\</code>: dummy CSVs (regenerate with <code>python -I scripts\make_dummy_data.py lab\data</code>)</li>
+</ul>
+</main>
+</body>
+</html>

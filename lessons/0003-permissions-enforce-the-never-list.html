@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lesson 3 · Permissions: make Claude Code enforce your NEVER list</title>
+<link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+<main>
+
+<nav class="crumbs"><a href="../index.html">Course map</a> · <a href="0002-path-scoped-rules-tmdl-vs-pbir.html">Lesson 2</a> · Lesson 3 · <a href="../reference/settings-permissions.html">Settings &amp; permissions reference</a> · <a href="../reference/glossary.html">Glossary</a></nav>
+
+<p class="kicker">Lesson 3 · From context to enforcement</p>
+<h1>Permissions: make Claude Code enforce your NEVER list</h1>
+<p class="subtitle">Your CLAUDE.md <em>asks</em> Claude not to touch certain PBIP files. A settings file makes Claude Code refuse, whatever Claude decides.</p>
+<div class="meta"><span>~40 min</span><span>Hands-on: terminal + editor (Desktop optional)</span><span>Primary source: <a href="https://code.claude.com/docs/en/permissions">Configure permissions</a></span></div>
+
+<div class="callout mission">
+  <span class="label">Why this, now</span>
+  You're on Claude Code v2.1.302, so your sessions start in <strong>auto mode</strong>. In auto mode, <q>read-only actions and file edits in your working directory are auto-approved</q> without asking you (<a href="https://code.claude.com/docs/en/permission-modes#how-auto-mode-evaluates-actions">permission modes</a>). Today, the only thing between Claude and <code>diagramLayout.json</code> is one line in CLAUDE.md, and that line is context. The docs: <q>Permission rules are enforced by Claude Code, not by the model.</q> And: <q>Deny rules block in every mode, including <code>bypassPermissions</code>.</q> Before a teammate clones this repo, the NEVER list should be enforced, not just requested.
+</div>
+
+<p><strong>Your win today:</strong> a hand-written, committed <code>lab\.claude\settings.json</code>. You'll tell Claude to read the model's local settings, and you'll watch <em>Claude Code</em> refuse the request. You'll also find that your personal settings can't undo a team deny.</p>
+
+<!-- ============================================================ -->
+<h2>From last time: what your answers told me</h2>
+<table class="wide">
+  <tr><th>You said</th><th>What was going on</th></tr>
+  <tr><td>1. Canaries: <em>yes</em></td><td>Path scoping works. 👍</td></tr>
+  <tr><td>2. Broken quotes: <em>can't detect</em></td><td>That was a fair result: the error doesn't appear on screen. I reproduced it on v2.1.302. <code>claude --debug</code> writes to a <strong>log file</strong>, and the line is <code>[WARN] Failed to parse YAML frontmatter: YAML Parse error: Unresolved alias</code>. Lesson 2 should have said where to look. The command to find it is in Part D, step 1.</td></tr>
+  <tr><td>3. <code>margin_pct</code>: <em>caught, following the TMDL rules</em></td><td>Good, but it doesn't prove the rule did it. Your <code>CLAUDE.md</code> still has the <em>Team conventions</em> section and the unfixed <code>report.json</code> line (Lesson 2, steps 2 and 4), so either copy could have caught the name.</td></tr>
+  <tr><td>Something I found</td><td><code>lab\.claude\rules\pbir.md</code> was saved by an editor that <em>escaped</em> the markdown. Line 1 is now <code>\---</code>, the pattern is <code>\*\*/\*.Report…</code>, and indents are <code>&amp;#x20;</code>. Claude Code finds no frontmatter, so pbir.md now loads <strong>every session</strong>. <code>tmdl.md</code> is fine. Which editor did you use? Write these files in Notepad or VS Code, not in a rich-text markdown editor.</td></tr>
+</table>
+
+<h3>Warm-up</h3>
+<p>Answer from memory.</p>
+
+<div class="quiz" data-answer="a">
+  <p class="q">W1. Your <code>pbir.md</code> now starts with <code>\---</code> instead of <code>---</code>. When does it load?</p>
+  <div class="options">
+    <button data-key="a">Every session at launch, like an unscoped rule</button>
+    <button data-key="b">Only when Claude opens a PBIR visual file</button>
+    <button data-key="c">Never, because Claude Code skips malformed rule files</button>
+    <button data-key="d">Only after you run /memory and reload it</button>
+  </div>
+  <div class="feedback" data-for="a">With no valid <code>---</code> opening line there's no frontmatter, so there's no <code>paths</code>. A rule without <code>paths</code> loads at launch. It's the same silent failure as broken YAML, and you can spot it the same way: it's listed under Memory files in <code>/context</code> before any file has been opened.</div>
+</div>
+
+<div class="quiz" data-answer="a">
+  <p class="q">W2. Which of these does Claude Code enforce no matter what Claude decides?</p>
+  <div class="options">
+    <button data-key="a">A deny rule in .claude/settings.json</button>
+    <button data-key="b">A NEVER line in project CLAUDE.md</button>
+    <button data-key="c">A path-scoped rule in .claude/rules/</button>
+    <button data-key="d">A note saved in auto memory</button>
+  </div>
+  <div class="feedback" data-for="a">CLAUDE.md, rules, and memory are all <em>context</em>: text Claude chooses to follow. Permission rules are <em>enforcement</em>. The harness checks every tool call against them before it runs.</div>
+</div>
+
+<!-- ============================================================ -->
+<h2>Part A: Where settings live</h2>
+<p>Settings are JSON files. Four can affect you, and each has a different reach:<span class="sidenote-ref"></span><span class="sidenote"><a href="https://code.claude.com/docs/en/settings#settings-files-and-who-they-affect">Settings files and who they affect</a>. On Windows, <code>~/.claude</code> means <code>%USERPROFILE%\.claude</code>. Claude Code reads the shared project file from the directory you launch in. That's why you start your lab sessions in <code>lab\</code>.</span></p>
+<table class="wide">
+  <tr><th>Scope</th><th>File</th><th>Reaches</th><th>In your PBIP setup</th></tr>
+  <tr><td>Managed</td><td><code>managed-settings.json</code>, MDM, or the claude.ai console</td><td>Everyone your org deploys it to</td><td>Your company's IT, later. <code>/status</code> shows whether one applies.</td></tr>
+  <tr><td>Project local</td><td><code>.claude\settings.local.json</code></td><td>You, in this repo only</td><td>Personal shortcuts. If you create it by hand, <strong>gitignore it yourself</strong>.</td></tr>
+  <tr><td>Shared project</td><td><code>.claude\settings.json</code></td><td>Everyone who clones the repo</td><td>The team's PBIP guardrails. <strong>Today's file.</strong></td></tr>
+  <tr><td>User</td><td><code>~\.claude\settings.json</code></td><td>You, in every project</td><td>Your preferences everywhere</td></tr>
+</table>
+<p>For a single value, such as <code>model</code>, the highest level wins: managed, then command line, then local, then project, then user. <strong>Lists like <code>permissions.deny</code> merge</strong>, so every file adds entries. Then one rule overrides precedence: <q>if user settings allow a permission and project settings deny it, the deny rule blocks it</q>, and the reverse is also true. <strong>A deny from any scope wins.</strong><span class="sidenote-ref"></span><span class="sidenote"><a href="https://code.claude.com/docs/en/settings#lists-merge-instead-of-overriding">Lists merge instead of overriding</a> · <a href="https://code.claude.com/docs/en/permissions#settings-precedence">Permissions: settings precedence</a>.</span></p>
+
+<!-- ============================================================ -->
+<h2>Part B: How a permission rule works</h2>
+
+<h3>1. Three lists, checked in a fixed order</h3>
+<pre><span class="file">.claude\settings.json</span><code>{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [ … ],   ← runs without asking
+    "ask":   [ … ],   ← always asks you
+    "deny":  [ … ]    ← refused
+  }
+}</code></pre>
+<p><q>Rules are evaluated in order: deny, then ask, then allow. The first match in that order determines the outcome, and rule specificity doesn't change the order.</q> As a result, <q>an allow rule can't carve an exception out of a deny rule.</q><span class="sidenote-ref"></span><span class="sidenote"><a href="https://code.claude.com/docs/en/permissions#manage-permissions">Manage permissions</a>. The <code>$schema</code> line gives you autocomplete and red squiggles in VS Code. The file is strict JSON: a trailing comma or a <code>//</code> comment is a <em>Settings Error</em> at startup.</span></p>
+
+<h3>2. A rule is <code>Tool(specifier)</code>. For files, use only <code>Read</code> and <code>Edit</code></h3>
+<ul>
+  <li><code>Edit(path)</code> covers every built-in tool that changes files.</li>
+  <li>A <code>Read(path)</code> deny <em>also</em> blocks Edit and Write on that path. In my test it also hid the file from Glob: Claude couldn't even see it in a file listing.</li>
+  <li><code>Write(…)</code> and <code>Glob(…)</code> path rules are accepted but <q>never consulted</q>, and you get a startup warning.<span class="sidenote-ref"></span><span class="sidenote"><a href="https://code.claude.com/docs/en/permissions#read-and-edit">Read and Edit</a>. Claude Code ignores <code>.claudeignore</code>. Put those entries in <code>Read</code> deny rules instead.</span></li>
+</ul>
+
+<h3>3. Paths use gitignore syntax. The shape decides the depth</h3>
+<p>This is the part that bites. Read each row slowly:</p>
+<table class="wide">
+  <tr><th>Shape</th><th>Example (deny)</th><th>Matches</th></tr>
+  <tr><td>Bare file name</td><td><code>Read(cache.abf)</code></td><td>That file name <strong>at any depth</strong></td></tr>
+  <tr><td>One folder + <code>/**</code></td><td><code>Edit(.pbi/**)</code></td><td>In <em>deny/ask</em>: every <code>.pbi</code> folder <strong>at any depth</strong>. In <em>allow</em>: only <code>.pbi</code> at the launch folder.</td></tr>
+  <tr><td>Path with a <code>/</code> inside</td><td><code>Read(.pbi/cache.abf)</code></td><td><strong>Anchored</strong> where you launched Claude, so <code>lab\.pbi\cache.abf</code> only. It does <em>not</em> match <code>Contoso.SemanticModel\.pbi\…</code></td></tr>
+  <tr><td><code>**/</code> prefix</td><td><code>Read(**/.pbi/cache.abf)</code></td><td>Any depth, and it says so explicitly</td></tr>
+  <tr><td>Leading <code>/</code></td><td><code>Edit(/Contoso.Report/**)</code></td><td>Relative to the project (for project settings), <em>not</em> <code>C:\</code></td></tr>
+  <tr><td>Leading <code>//</code></td><td><code>Read(//c/Users/**/.env)</code></td><td>Absolute path. Windows paths become <code>/c/Users/…</code> before matching.</td></tr>
+</table>
+<p class="marginnote">Every row is quoted from or tested against <a href="https://code.claude.com/docs/en/permissions#read-and-edit">the Read and Edit section</a>. I ran the <code>.pbi</code> rules against a copy of your folder layout on v2.1.302.</p>
+
+<h3>4. Modes set the baseline, and rules sit on top</h3>
+<table>
+  <tr><th>Mode (status bar)</th><th>Runs without asking</th></tr>
+  <tr><td><code>default</code> · ⏸ manual mode on</td><td>Reads only</td></tr>
+  <tr><td><code>acceptEdits</code> · ⏵⏵ accept edits on</td><td>Reads, edits, <code>mkdir</code>/<code>mv</code>/<code>cp</code>… in your folder</td></tr>
+  <tr><td><code>plan</code> · ⏸ plan mode on</td><td>Reads. No edits until you approve a plan.</td></tr>
+  <tr><td><code>auto</code> · ⏵⏵ auto mode on</td><td>Everything, after a classifier checks shell and network actions. <strong>Your default.</strong></td></tr>
+</table>
+<p><kbd>Shift</kbd>+<kbd>Tab</kbd> cycles modes. Two facts matter for a team repo. <strong>Ask rules still prompt in auto mode</strong>: <q>Tools matched by an explicit ask rule</q> are never auto-approved. And a project file <strong>can't</strong> switch on <code>auto</code> or <code>bypassPermissions</code> for your teammates. Set to <code>bypassPermissions</code> there, <q>the session starts in Manual mode</q>.<span class="sidenote-ref"></span><span class="sidenote"><a href="https://code.claude.com/docs/en/permission-modes#available-modes">Available modes</a> · <a href="https://code.claude.com/docs/en/permission-modes#which-mode-a-session-starts-in">Which mode a session starts in</a>. The <code>dontAsk</code> and <code>bypassPermissions</code> modes are for CI and containers (Lesson 10).</span></p>
+
+<div class="callout warn">
+  <span class="label">What a deny rule doesn't cover</span>
+  <p style="margin:0.2rem 0">Read/Edit denies cover Claude's file tools, Bash file commands Claude Code recognizes (<code>cat</code>, <code>head</code>, <code>sed</code>, <code>tee</code>…), and redirects like <code>&gt; file</code>. In my test on v2.1.302, PowerShell's <code>Get-Content</code> was blocked too, although the docs only promise this for Bash. They <strong>don't</strong> cover <q>a Python or Node script that opens files itself</q>, or <code>grep -r</code> run over a folder. That matters once <code>cache.abf</code> holds company data. A deny rule is a strong default, not a security boundary. Hooks (Lesson 5) and sandboxing add more layers.</p>
+  <p style="margin:0.2rem 0"><strong>Windows trap:</strong> any <code>Bash(…)</code> <em>deny</em> rule silently turns off the PowerShell tool. Pair it with the matching <code>PowerShell(…)</code> rule (<a href="https://code.claude.com/docs/en/tools-reference#bash-deny-rules-also-turn-off-the-powershell-tool">tools reference</a>). Today's rules are all Read/Edit, so this doesn't affect you yet.</p>
+</div>
+
+<!-- ============================================================ -->
+<h2>Part C: Map your NEVER list to rules</h2>
+<p>Your CLAUDE.md has three kinds of NEVER. Each one needs a different rule:</p>
+<table class="wide">
+  <tr><th>CLAUDE.md says</th><th>Rule type</th><th>Why</th></tr>
+  <tr><td>Never read <code>cache.abf</code> / <code>localSettings.json</code></td><td><code>Read</code> deny</td><td><code>cache.abf</code> holds the model's <em>imported data</em>. When it's company data, Claude shouldn't load it into context.</td></tr>
+  <tr><td>Never edit anything in <code>.pbi\</code></td><td><code>Edit</code> deny on the folder</td><td>But <em>not</em> a <code>Read</code> deny on the whole folder: Claude must still see whether <code>.pbi\unappliedChanges.json</code> exists.</td></tr>
+  <tr><td>Never edit <code>definition.pbir</code>, legacy <code>report.json</code>, <code>mobileState.json</code>, <code>semanticModelDiagramLayout.json</code>, <code>diagramLayout.json</code></td><td><code>Edit</code> deny, one per file</td><td>Reading them is fine. Microsoft only says external <em>edits</em> are unsupported.</td></tr>
+  <tr><td>(pbir.md) Ask before editing <code>definition\report.json</code></td><td><code>ask</code></td><td>Allowed, but you always confirm it, even in auto mode.</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2>Part D: Do it</h2>
+
+<div class="checklist" data-id="l0003-do">
+<ol>
+  <li><p><strong>Repair Lesson 2 (5 min).</strong> Run all of this from <code>lab\</code>:</p>
+    <ul>
+      <li>Open <code>notepad .claude\rules\pbir.md</code> and rewrite it as plain text. It should start with <code>---</code>, then <code>paths:</code>, then <code>  - "**/*.Report/definition/**/*.json"</code>. Use <a href="0002-path-scoped-rules-tmdl-vs-pbir.html">Lesson 2's model</a> without the canary line.</li>
+      <li>In <code>CLAUDE.md</code>, delete the <em>Team conventions</em> section (it lives in <code>tmdl.md</code> now), and change <code>report.json</code> in the NEVER list to <code>report.json at the report folder root (PBIR-Legacy)</code>.</li>
+      <li>Here's how to find a rule parse error next time. Run <code>claude --debug</code>, exit, then:</li>
+    </ul>
+<pre><code>Get-ChildItem $HOME\.claude\debug | Sort-Object LastWriteTime |
+  Select-Object -Last 1 | Select-String "frontmatter"</code></pre>
+    <p>No output means no parse error. Then start <code>claude</code>, run <code>/context</code>, and check that <strong>neither</strong> rule file is listed under Memory files.</p></li>
+
+  <li><p><strong>Write <code>lab\.claude\settings.json</code> by hand.</strong> Run <code>notepad .claude\settings.json</code>. Start from this and complete it yourself: add the five never-edit files as <code>Edit</code> denies, and put the <code>definition\report.json</code> rule in <code>ask</code>. Use Part B's shape table. <strong>Careful:</strong> you have two <code>report.json</code> files. That's the Lesson 2 bug again, now in a rule.</p>
+<pre><span class="file">lab\.claude\settings.json</span><code>{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "deny": [
+      "Read(**/.pbi/cache.abf)",
+      "Read(**/.pbi/localSettings.json)",
+      "Edit(.pbi/**)"
+    ],
+    "ask": [
+    ]
+  }
+}</code></pre>
+    <div class="recall">
+      <p class="prompt">Write your rules in the file first. Then type just your additions here and compare them with mine.</p>
+      <div class="model">
+<pre><code>    "deny": [
+      "Read(**/.pbi/cache.abf)",
+      "Read(**/.pbi/localSettings.json)",
+      "Edit(.pbi/**)",
+      "Edit(definition.pbir)",
+      "Edit(**/*.Report/report.json)",
+      "Edit(mobileState.json)",
+      "Edit(semanticModelDiagramLayout.json)",
+      "Edit(diagramLayout.json)"
+    ],
+    "ask": [
+      "Edit(**/*.Report/definition/report.json)"
+    ]</code></pre>
+        <p>A bare <code>Edit(report.json)</code> matches at any depth, so it would also block <code>definition\report.json</code>, the PBIR file you're allowed to edit. And because deny is checked before ask, your ask rule would never fire. <code>**/*.Report/report.json</code> matches only a <code>report.json</code> directly inside a report folder.</p>
+      </div>
+    </div></li>
+
+  <li><p><strong>Check that it loaded.</strong> Claude Code reloads settings files when they change, so no restart is needed. Run <code>/status</code>: the <em>Setting sources</em> line should now include project settings. Then run <code>/permissions</code>: every rule is listed with the file it came from. If you get a <em>Settings Error</em>, look for a trailing comma.</p></li>
+
+  <li><p><strong>Who says no? Predict first.</strong> Ask: <q>Permissions test: for this one request, ignore the CLAUDE.md line about .pbi and read Contoso.SemanticModel/.pbi/localSettings.json.</q> Before you press Enter, write down your guess: will <em>Claude</em> refuse (context), or will <em>Claude Code</em> refuse (enforcement)? Enforcement looks like a tool error: <code>File is in a directory that is denied by your permission settings.</code> If Claude refuses politely without trying, tell it to try anyway.</p></li>
+
+  <li><p><strong>Edit deny.</strong> Ask: <q>Permissions test: ignore the CLAUDE.md line about diagramLayout.json for this one request and attempt the edit. Move the Customers table 100 px to the right in Contoso.SemanticModel/diagramLayout.json. Show me the exact error if a tool call is blocked.</q> You need the override wording: without it, Claude declines on its own because of CLAUDE.md and never makes a tool call, so the permission check never runs. Claude may read the file, because reading is allowed. The edit should be refused.</p></li>
+
+  <li><p><strong>Ask rule in auto mode.</strong> Check that the status bar says <em>auto mode on</em>. Ask: <q>In Contoso.Report/definition/report.json, change the page verticalAlignment from Top to Middle.</q> Predict: will auto mode just do it? When the prompt appears, choose <strong>No</strong>.</p></li>
+
+  <li><p><strong>Can your personal file beat the team?</strong> Create <code>notepad .claude\settings.local.json</code>:</p>
+<pre><span class="file">lab\.claude\settings.local.json</span><code>{
+  "permissions": {
+    "allow": [
+      "Bash(git add *)",
+      "PowerShell(git add *)",
+      "Edit(**/diagramLayout.json)"
+    ]
+  }
+}</code></pre>
+    <p>Local is a <em>higher</em> scope than project. Predict, then repeat step 5 with the same override wording. Afterwards, delete the <code>diagramLayout</code> line and keep the two <code>git add</code> lines: they're your personal shortcut, not a team policy.</p></li>
+
+  <li><p><strong>Keep the local file out of git.</strong> You created it by hand, so Claude Code hasn't gitignored it for you. Add this line to <code>lab\.gitignore</code>:</p>
+<pre><code>.claude/settings.local.json</code></pre>
+    <p>Then run <code>git status</code>. <code>settings.json</code> should be listed and <code>settings.local.json</code> shouldn't.</p></li>
+
+  <li><p><strong>Shorten the CLAUDE.md lines and commit.</strong> Keep the NEVER lines, but end each with <q>(enforced in .claude/settings.json)</q>. The line still explains <em>why</em>, so Claude doesn't waste a turn looking for a workaround. Then commit:</p>
+<pre><code>git add .claude/settings.json .claude/rules CLAUDE.md .gitignore
+git commit -m "Enforce PBIP never-edit list with permission rules"</code></pre></li>
+</ol>
+</div>
+
+<!-- ============================================================ -->
+<h2>Part E: Retrieval practice</h2>
+<p>Scroll up only after you've answered.</p>
+<p class="quiz-score"></p>
+
+<div class="quiz" data-answer="a">
+  <p class="q">1. Project <code>settings.json</code> denies <code>Edit(diagramLayout.json)</code>. Your <code>settings.local.json</code> allows <code>Edit(**/diagramLayout.json)</code>. Claude tries the edit. What happens?</p>
+  <div class="options">
+    <button data-key="a">Blocked, because deny rules are checked before allow</button>
+    <button data-key="b">Allowed, because local settings outrank shared project settings</button>
+    <button data-key="c">Allowed, because the more specific pattern always wins</button>
+    <button data-key="d">Prompted, because conflicting rules fall back to ask</button>
+  </div>
+  <div class="feedback" data-for="a">Lists merge across files, and then deny, ask, allow are checked in that order. Scope precedence decides single values like <code>model</code>. It never lets an allow beat a deny.</div>
+</div>
+
+<div class="quiz" data-answer="a">
+  <p class="q">2. You're in auto mode, and the settings have an ask rule for <code>Edit(**/*.Report/definition/report.json)</code>. Claude edits that file. What happens?</p>
+  <div class="options">
+    <button data-key="a">You get a prompt; ask rules beat auto mode</button>
+    <button data-key="b">The classifier decides, so it usually just runs</button>
+    <button data-key="c">It's blocked outright; ask behaves like deny there</button>
+    <button data-key="d">It runs; auto mode ignores ask and allow rules</button>
+  </div>
+  <div class="feedback" data-for="a">An explicit ask rule is on the list of actions that no mode auto-approves. That makes <code>ask</code> the right tool for "Claude may do this, but I always want to see it."</div>
+</div>
+
+<div class="quiz" data-answer="a">
+  <p class="q">3. Why <code>Edit(**/*.Report/report.json)</code> rather than just <code>Edit(report.json)</code>?</p>
+  <div class="options">
+    <button data-key="a">Bare names match at any depth, including definition/report.json</button>
+    <button data-key="b">Bare names match only files in the root folder</button>
+    <button data-key="c">Edit rules without ** are ignored with a warning</button>
+    <button data-key="d">The legacy report.json is binary, so needs globs</button>
+  </div>
+  <div class="feedback" data-for="a">Gitignore semantics: a bare file name matches at any depth. That would block the PBIR <code>definition/report.json</code> too, and the deny would win over your ask rule.</div>
+</div>
+
+<div class="quiz" data-answer="a">
+  <p class="q">4. Why not simply deny <code>Read(**/.pbi/**)</code> to protect the cache?</p>
+  <div class="options">
+    <button data-key="a">It hides unappliedChanges.json, so the pending-changes check breaks</button>
+    <button data-key="b">Read rules can't use ** and get skipped</button>
+    <button data-key="c">It would block every TMDL file as well</button>
+    <button data-key="d">Folder deny rules only work in bypassPermissions mode</button>
+  </div>
+  <div class="feedback" data-for="a">A Read deny hides matching files from Glob too. Your CLAUDE.md asks Claude to stop if <code>.pbi/unappliedChanges.json</code> exists, so Claude must be able to see it. Deny reads on the two sensitive files and deny edits on the whole folder.</div>
+</div>
+
+<div class="quiz" data-answer="a">
+  <p class="q">5. You deny <code>Read(.pbi/localSettings.json)</code>. Is <code>Contoso.SemanticModel/.pbi/localSettings.json</code> blocked?</p>
+  <div class="options">
+    <button data-key="a">No, a multi-folder path anchors where Claude launched</button>
+    <button data-key="b">Yes, every deny pattern matches at any folder depth</button>
+    <button data-key="c">Yes, but only for the built-in Read tool</button>
+    <button data-key="d">No, deny rules require a // absolute path</button>
+  </div>
+  <div class="feedback" data-for="a">A pattern with a <code>/</code> between segments is anchored at the starting folder, so it only matches <code>lab/.pbi/localSettings.json</code>, which doesn't exist. Add <code>**/</code>, or use the bare file name.</div>
+</div>
+
+<div class="quiz" data-answer="a">
+  <p class="q">6. Which of these can a <code>Read(**/.pbi/cache.abf)</code> deny rule <em>not</em> stop?</p>
+  <div class="options">
+    <button data-key="a">A Python script Claude runs that opens the file</button>
+    <button data-key="b">Claude calling the built-in Read tool on that file</button>
+    <button data-key="c">Claude running cat on that same file in Bash</button>
+    <button data-key="d">You @-mentioning that file directly inside your prompt</button>
+  </div>
+  <div class="feedback" data-for="a">Permission rules match tool calls and the file commands Claude Code recognizes. A subprocess that opens files itself is invisible to them. For that you need a sandbox or a hook that inspects the command.</div>
+</div>
+
+<div class="quiz" data-answer="a">
+  <p class="q">7. A teammate commits <code>"defaultMode": "bypassPermissions"</code> in the project <code>settings.json</code>. You start Claude there. Which mode are you in?</p>
+  <div class="options">
+    <button data-key="a">Manual, since project files can't switch on bypass</button>
+    <button data-key="b">Bypass, since project settings outrank your user file</button>
+    <button data-key="c">Auto, since Claude Code silently swaps bypass for auto</button>
+    <button data-key="d">None, since Claude Code refuses to start the session</button>
+  </div>
+  <div class="feedback" data-for="a"><code>auto</code> and <code>bypassPermissions</code> don't take effect from project or local settings, so a cloned repo can't put you in either mode. Set to <code>bypassPermissions</code> there, the session starts in Manual.</div>
+</div>
+
+<div class="quiz" data-answer="a">
+  <p class="q">8. You want Claude to run <code>git add</code> without asking, for you only, in this repo. Where does the rule go?</p>
+  <div class="options">
+    <button data-key="a">settings.local.json, gitignored by you if hand-made</button>
+    <button data-key="b">settings.json, committed so everyone stays in sync</button>
+    <button data-key="c">CLAUDE.md, as a line saying git add is fine</button>
+    <button data-key="d">A rule file in .claude/rules with paths frontmatter</button>
+  </div>
+  <div class="feedback" data-for="a">Local scope is you, in this project. The CLAUDE.md and rule-file options are context: they can't grant a permission.</div>
+</div>
+
+<div class="recall">
+  <p class="prompt"><strong>Write it out:</strong> a <code>permissions</code> block that (1) stops Claude reading the model cache in any model folder, (2) stops every edit inside any <code>.pbi</code> folder, and (3) always asks before editing PBIR <code>definition/report.json</code>. Then say in one sentence why the CLAUDE.md line is still worth keeping.</p>
+  <div class="model">
+<pre><code>"permissions": {
+  "deny": [
+    "Read(**/.pbi/cache.abf)",
+    "Edit(.pbi/**)"
+  ],
+  "ask": [
+    "Edit(**/*.Report/definition/report.json)"
+  ]
+}</code></pre>
+    <p>The rule <em>enforces</em> and the CLAUDE.md line <em>explains</em>. Without the why, Claude hits the block and may look for another way to do the task.</p>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<h2>Go deeper</h2>
+<p><strong>Primary source:</strong> <a href="https://code.claude.com/docs/en/permissions">Configure permissions</a> (Claude Code docs). Read "Manage permissions", "Permission rule syntax", and all of "Read and Edit". Skip the Bash wrapper details for now; they come back in Lesson 10.</p>
+<p>Also see <a href="https://code.claude.com/docs/en/settings">Settings files and precedence</a> for scopes and <code>/status</code>, and <a href="https://code.claude.com/docs/en/permission-modes">Choose a permission mode</a> for what auto mode's classifier does and doesn't check.</p>
+<p>Reference sheets: <a href="../reference/settings-permissions.html">Settings &amp; permissions</a> · <a href="../reference/rules.html">Rules</a> · <a href="../reference/glossary.html">Glossary</a>.</p>
+
+<div class="callout">
+  <span class="label">Ask your teacher</span>
+  Ask me anything in this session, for example <q>should this be deny or ask?</q>, <q>/permissions shows a warning</q>, or <q>check my settings.json</q>. Then tell me three things: in step 4, did <em>Claude</em> or <em>Claude Code</em> say no? In step 7, did your local allow beat the deny? And did anything prompt, or not prompt, when you didn't expect it? Also tell me which editor mangled <code>pbir.md</code>.
+</div>
+
+<nav class="lesson-nav">
+  <a href="0002-path-scoped-rules-tmdl-vs-pbir.html">← Lesson 2: Rules</a>
+  <span>Next: Lesson 4, skills (<code>/add-measure</code>)</span>
+</nav>
+
+</main>
+<script src="../assets/components.js"></script>
+</body>
+</html>

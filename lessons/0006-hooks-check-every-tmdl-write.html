@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lesson 6 · Hooks II: check every TMDL write</title>
+<link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+<main>
+
+<nav class="crumbs"><a href="../index.html">Course map</a> · <a href="0005-hooks-block-edits-while-pending.html">Lesson 5</a> · Lesson 6 · <a href="../reference/hooks.html">Hooks reference</a> · <a href="../reference/glossary.html">Glossary</a></nav>
+
+<p class="kicker">Lesson 6 · From blocking to checking</p>
+<h1>Hooks II: check every TMDL write</h1>
+<p class="subtitle">A PreToolUse hook says "not now". A PostToolUse hook looks at what a tool just did, and if it's wrong, tells Claude to fix it.</p>
+<div class="meta"><span>~40 min</span><span>Hands-on: terminal + editor (Desktop stays closed)</span><span>Primary source: <a href="https://code.claude.com/docs/en/hooks#posttooluse">Hooks reference: PostToolUse</a></span></div>
+
+<div class="callout mission">
+  <span class="label">Why this, now</span>
+  Microsoft says PBIP files you edit outside Desktop <q>should be saved using UTF-8 without BOM encoding</q>, and that <q>Power BI Desktop uses CRLF as end-of-line.</q><span class="sidenote-ref"></span><span class="sidenote"><a href="https://learn.microsoft.com/en-us/power-bi/developer/projects/projects-overview#considerations-and-limitations">PBIP overview: Considerations and limitations</a> (Microsoft Learn). Note the difference: the encoding is a rule, while CRLF is there <q>to avoid problems in your diffs</q>.</span> Your CLAUDE.md already says so, but that's context: Claude <em>chooses</em> to follow it. And as you'll see in Part B, three of Claude's own write paths produce something else. Today the check moves into code that runs after every write.
+</div>
+
+<p><strong>Your win today:</strong> a hand-written, committed PostToolUse hook. After every Edit, Write, or shell command, it checks each changed <code>.tmdl</code> file. If one is UTF-16, ANSI, has a BOM, or has LF line endings, Claude gets told exactly what's wrong and fixes it in the same turn.</p>
+
+<!-- ============================================================ -->
+<h2>From last time</h2>
+<table class="wide">
+  <tr><th>What you reported</th><th>Notes</th></tr>
+  <tr><td>Step 5: <code>Blocked by hook: …</code></td><td>The hook blocks Edit. 👍</td></tr>
+  <tr><td>Step 7: "the hook did not fire because of the typo"</td><td>Right result, one correction. The hook <em>did</em> run: <code>powershell.exe</code> started, couldn't find the script, and reported status <code>0</code>. Claude Code saw a success, which is why <code>onFailure</code> had nothing to catch. "Didn't fire" and "fired and reported success" need different fixes, so it's worth knowing which one you've got.</td></tr>
+  <tr><td>Not committed yet</td><td><code>git status</code> in <code>lab\</code> shows <code>settings.json</code> modified and <code>.claude/hooks/</code> untracked. Step 1 below commits it.</td></tr>
+  <tr><td>Total Cost description</td><td>Gone, and that was my fault. Step 7's cleanup ran <code>git checkout -- Contoso.SemanticModel/definition</code>, which also reverted step 6's description. I've fixed Lesson 5: step 7 now uses <code>Stores.tmdl</code>. Re-adding it is optional (step 1).</td></tr>
+</table>
+
+<h3>Warm-up</h3>
+<p>Answer from memory.</p>
+
+<div class="quiz" data-answer="a">
+  <p class="q">W1. Your project <code>settings.json</code> denies <code>Edit(.pbi/**)</code>. Your <code>settings.local.json</code> allows it. Claude tries to edit <code>.pbi\editorSettings.json</code>. What happens?</p>
+  <div class="options">
+    <button data-key="a">Denied, because a deny in any scope beats every allow</button>
+    <button data-key="b">Allowed, because local settings beat project settings</button>
+    <button data-key="c">You're prompted, because the two scopes disagree here</button>
+    <button data-key="d">Allowed, but only for the rest of the current session</button>
+  </div>
+  <div class="feedback" data-for="a">Deny, then ask, then allow, across every scope. You proved this in Lesson 3 step 7. Scope precedence only matters between settings that don't conflict this way.</div>
+</div>
+
+<div class="quiz" data-answer="b">
+  <p class="q">W2. A PreToolUse hook script crashes and exits 1. <code>onFailure</code> isn't set. What happens to the Edit?</p>
+  <div class="options">
+    <button data-key="a">It's blocked, because any non-zero exit blocks the call</button>
+    <button data-key="b">It runs, because exit 1 counts as a non-blocking error</button>
+    <button data-key="c">You're prompted to choose whether the call should go on</button>
+    <button data-key="d">Claude Code retries the hook until it finally exits 0</button>
+  </div>
+  <div class="feedback" data-for="b">Only exit 2 blocks. A crash fails open unless you set <code>"onFailure": "block"</code>. Today that matters in a new way: PostToolUse exit codes work differently (Part A).</div>
+</div>
+
+<div class="quiz" data-answer="c">
+  <p class="q">W3. You want a hook to see every Edit <em>and</em> every shell command on Windows. Which matcher?</p>
+  <div class="options">
+    <button data-key="a"><code>Edit|Write|Bash</code></button>
+    <button data-key="b"><code>Edit(*)|Command</code></button>
+    <button data-key="c"><code>Edit|PowerShell</code></button>
+    <button data-key="d"><code>edit|powershell</code></button>
+  </div>
+  <div class="feedback" data-for="c">Bare tool names, case-sensitive, and on Windows shell commands go through <code>PowerShell</code>. <code>Edit(…)</code> is permission-rule syntax: it belongs in <code>if</code> or in <code>permissions</code>, never in <code>matcher</code>. The full list of names is in the <a href="https://code.claude.com/docs/en/tools-reference">Tools reference</a>.</div>
+</div>
+
+<!-- ============================================================ -->
+<h2>Part A: After the tool, not before</h2>
+
+<pre><code>Claude decides: Write(Scratch.tmdl)
+  │
+  ├─ PreToolUse hooks     Lesson 5: can block
+  ├─ permission rules, mode
+  ├─ the tool runs        ← the file is on disk now
+  │
+  └─ PostToolUse hooks    today: can't block, can't undo
+        exit 2 → your stderr goes to Claude, next to the tool result
+        exit 0 → nothing reaches Claude</code></pre>
+
+<p>PostToolUse <q>runs immediately after a tool completes successfully.</q> It uses the same matchers as PreToolUse.<span class="sidenote-ref"></span><span class="sidenote"><a href="https://code.claude.com/docs/en/hooks#posttooluse">Hooks reference: PostToolUse</a>. If the tool fails, PostToolUse doesn't run. <code>PostToolUseFailure</code> does instead.</span> The exit-code table changes meaning:</p>
+
+<table>
+  <tr><th>Exit</th><th>PreToolUse (Lesson 5)</th><th>PostToolUse (today)</th></tr>
+  <tr><td>0</td><td>Carry on</td><td>Carry on. Claude never sees your stderr</td></tr>
+  <tr><td><strong>2</strong></td><td>Blocks the call</td><td><q>Shows stderr to Claude; the tool already ran</q></td></tr>
+  <tr><td>other</td><td>Non-blocking error</td><td>Non-blocking error: a notice for you, nothing for Claude</td></tr>
+</table>
+
+<p>So the docs' advice is: <q>To surface a warning to Claude from a <code>PostToolUse</code>… hook, exit 2 instead so Claude sees the stderr even though the tool already ran.</q><span class="sidenote-ref"></span><span class="sidenote"><a href="https://code.claude.com/docs/en/hooks#exit-code-output">Exit code output</a> and the <a href="https://code.claude.com/docs/en/hooks#exit-code-2-behavior-per-event">exit 2 table per event</a>. There's also a JSON form (<code>"decision": "block"</code> + <code>"reason"</code>), but despite the name it doesn't block anything. It <q>adds the reason next to the tool result.</q></span> Your hook is a reviewer, not a gate: it can't stop a bad write, but it makes sure Claude finds out and fixes it before moving on.</p>
+
+<!-- ============================================================ -->
+<h2>Part B: What Claude's write paths actually produce</h2>
+<p>I tested each one on your machine (Claude Code v2.1.303, Windows PowerShell 5.1), writing <code>é</code> so encoding bugs show up:</p>
+
+<table class="wide">
+  <tr><th>How the file was written</th><th>Bytes on disk</th><th>OK for PBIP?</th></tr>
+  <tr><td><strong>Edit</strong> on an existing CRLF file</td><td>Keeps CRLF. Keeps a BOM if the file already had one</td><td>✅ (won't clean up an existing BOM)</td></tr>
+  <tr><td><strong>Write</strong>, new file</td><td>UTF-8, no BOM, <strong>LF</strong> line endings</td><td>⚠️ LF</td></tr>
+  <tr><td><code>Set-Content</code> / <code>Add-Content</code></td><td><strong>ANSI</strong>: <code>é</code> becomes the single byte <code>E9</code>, which isn't valid UTF-8</td><td>❌</td></tr>
+  <tr><td><code>Out-File</code> / <code>&gt;</code></td><td><strong>UTF-16 LE</strong> with BOM <code>FF FE</code></td><td>❌</td></tr>
+  <tr><td><code>[IO.File]::WriteAllText(path, text)</code></td><td>UTF-8, no BOM, line endings exactly as in <code>text</code></td><td>✅</td></tr>
+</table>
+<p>The PowerShell rows are documented Windows PowerShell 5.1 defaults, not a Claude quirk.<span class="sidenote-ref"></span><span class="sidenote"><a href="https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_character_encoding">about_Character_Encoding</a>. PowerShell 7 defaults to UTF-8 without BOM, but your machine only has 5.1, and so does a typical teammate's.</span> With pure-ASCII content, <code>Set-Content</code> happens to look fine, which is why this kind of bug slips through until someone types <code>Café</code>.</p>
+
+<!-- ============================================================ -->
+<h2>Part C: Which files to check?</h2>
+<p>Edit and Write tell your hook the <code>file_path</code>. A PowerShell command only gives its text (Lesson 5). And the docs warn that <q>Claude Code doesn't run a <code>PostToolUse</code> hook matching <code>Edit|Write</code> when a <code>Bash</code> command… rewrites the same file.</q> Their suggestion: <q>Your hook can then discover what changed itself, for example by running <code>git status --porcelain</code></q>.<span class="sidenote-ref"></span><span class="sidenote"><a href="https://code.claude.com/docs/en/hooks#posttooluse">Hooks reference: PostToolUse</a>, matcher notes. <code>--untracked-files=all</code> also lists new files inside new folders. Not tested: the <code>Monitor</code> tool also runs commands and isn't in your matcher. A write from it would be caught at the next matched call, because git still lists the file.</span></p>
+
+<p>So the hook ignores its stdin and asks git: <em>which <code>.tmdl</code> files differ from the last commit?</em> Then it checks those files' <strong>bytes on disk</strong>. Check the disk, not git's copy: with <code>autocrlf</code>, git stores your TMDL with LF and turns it back into CRLF on checkout. I checked, and <code>git show HEAD:…Stores.tmdl</code> has no CR bytes at all.</p>
+
+<table>
+  <tr><th>Problem</th><th>How the script spots it</th></tr>
+  <tr><td>UTF-16</td><td>First two bytes are <code>FF FE</code></td></tr>
+  <tr><td>BOM</td><td>First three bytes are <code>EF BB BF</code></td></tr>
+  <tr><td>ANSI</td><td>A strict UTF-8 decoder throws</td></tr>
+  <tr><td>LF</td><td>Regex <code>(?&lt;!\r)\n</code>: a newline with no CR before it</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2>Part D: Do it</h2>
+<p>Keep Desktop closed for the whole lesson. Steps 3, 5 and 6 create scratch files it would try to load.</p>
+
+<div class="checklist" data-id="l0006-do">
+<ol>
+  <li><p><strong>Commit Lesson 5.</strong> In PowerShell, in <code>lab\</code>:</p>
+<pre><code>git status
+git add .claude/hooks/block-unapplied.ps1 .claude/settings.json
+git commit -m "Block TMDL edits while Desktop has unapplied changes (PreToolUse hook)"</code></pre>
+    <p>Only those two should be listed. If <code>.pbi/unappliedChanges.json</code> shows up, delete it first. Optional: open Desktop, re-add the Total Cost description with Claude, apply it, commit, and close Desktop again.</p></li>
+
+  <li><p><strong>Write the script by hand.</strong> In VS Code (plain-text editor, as in Lesson 4):</p>
+<pre><code>code .claude\hooks\check-tmdl.ps1</code></pre>
+    <p>Fill in the four <code>(write …)</code> parts. Plain ASCII only, so no curly quotes or em dashes.</p>
+<pre><span class="file">lab\.claude\hooks\check-tmdl.ps1</span><code># PostToolUse check: every changed .tmdl must be UTF-8 without BOM, with CRLF.
+$ErrorActionPreference = "Stop"
+Set-Location $env:CLAUDE_PROJECT_DIR
+
+# Shell commands don't name their files, so ask git what changed.
+$changed = (write: git status, porcelain, all untracked files, only '*.tmdl')
+$strict  = New-Object System.Text.UTF8Encoding($false, $true)   # no BOM, throw on bad bytes
+
+$problems = foreach ($line in $changed) {
+    $f = $line.Substring(3).Trim('"')
+    if (-not (Test-Path -LiteralPath $f)) { continue }          # deleted files
+    $b = [IO.File]::ReadAllBytes((Resolve-Path -LiteralPath $f))
+    if ($b.Length -ge 2 -and $b[0] -eq 0xFF -and $b[1] -eq 0xFE) { "$f is UTF-16"; continue }
+    (write: if the first three bytes are EF BB BF, output "$f starts with a BOM")
+    try { $text = $strict.GetString($b) } catch { "$f is not valid UTF-8 (ANSI?)"; continue }
+    (write: if $text has a newline with no CR before it, output "$f has LF line endings, not CRLF")
+}
+if (-not $problems) { exit 0 }
+
+(write: one message to stderr: the problems, one per line, and how to fix them; then the exit that reaches Claude)</code></pre>
+    <p>Inside <code>foreach</code>, any bare string is <em>output</em>, and <code>$problems</code> collects it. That's why the checks are just strings.</p>
+    <div class="recall">
+      <p class="prompt">Write your version first, then compare. Hint: the stderr message is the only thing Claude learns, so give it the fix as well as the problem.</p>
+      <div class="model">
+<pre><code>$changed = git -c core.quotepath=off status --porcelain --untracked-files=all -- '*.tmdl'
+…
+    if ($b.Length -ge 3 -and $b[0] -eq 0xEF -and $b[1] -eq 0xBB -and $b[2] -eq 0xBF) { "$f starts with a BOM" }
+…
+    if ($text -match '(?&lt;!\r)\n') { "$f has LF line endings, not CRLF" }
+…
+$msg = "TMDL check failed:`n  " + ($problems -join "`n  ") +
+       "`nRe-save each file as UTF-8 without BOM, CRLF line endings. In Windows PowerShell 5.1, use [IO.File]::WriteAllText(); Set-Content, Add-Content and Out-File write ANSI or UTF-16."
+[Console]::Error.WriteLine($msg)
+exit 2</code></pre>
+        <p><code>core.quotepath=off</code> stops git escaping non-ASCII file names. <code>-- '*.tmdl'</code> matches in every subfolder. The BOM check doesn't <code>continue</code>, so a BOM file with LF reports both. The fix hint names the safe .NET call, because Claude's first instinct in PowerShell is <code>Set-Content</code>, which is one of the cmdlets that caused this.</p>
+      </div>
+    </div></li>
+
+  <li><p><strong>Test it without Claude.</strong> Predict A to D before you run them. Then paste them into PowerShell in <code>lab\</code>:</p>
+<pre><code>$env:CLAUDE_PROJECT_DIR = (Get-Location).Path
+$hook = ".claude\hooks\check-tmdl.ps1"
+$in   = '{"tool_name":"PowerShell","tool_input":{"command":"x"}}'
+$t    = "Contoso.SemanticModel\definition\tables"
+
+$in | powershell -NoProfile -ExecutionPolicy Bypass -File $hook; "A=$LASTEXITCODE"
+'table X' | Out-File "$t\X.tmdl"
+$in | powershell -NoProfile -ExecutionPolicy Bypass -File $hook; "B=$LASTEXITCODE"
+Remove-Item "$t\X.tmdl"
+Add-Content "$t\Stores.tmdl" ('/// Caf' + [char]0xE9)
+$in | powershell -NoProfile -ExecutionPolicy Bypass -File $hook; "C=$LASTEXITCODE"
+git checkout -- "$t/Stores.tmdl"
+[IO.File]::WriteAllText("$PWD\$t\Y.tmdl", "table Y`n", (New-Object Text.UTF8Encoding $true))
+$in | powershell -NoProfile -ExecutionPolicy Bypass -File $hook; "D=$LASTEXITCODE"
+Remove-Item "$t\Y.tmdl"
+git status --short</code></pre>
+    <details><summary>What I got (open after predicting)</summary>
+      <p>A <code>0</code> · B <code>X.tmdl is UTF-16</code>, then <code>2</code> · C <code>Stores.tmdl is not valid UTF-8 (ANSI?)</code>, then <code>2</code> · D both <code>starts with a BOM</code> and <code>has LF line endings</code>, then <code>2</code>. The last <code>git status</code> shows only <code>?? .claude/hooks/check-tmdl.ps1</code>. If A isn't <code>0</code>, something in your lab is already dirty: run <code>git status</code>.</p>
+    </details></li>
+
+  <li><p><strong>Wire it in.</strong> In <code>.claude\settings.json</code>, add a <code>"PostToolUse"</code> array <em>next to</em> <code>"PreToolUse"</code>, inside the same <code>"hooks"</code> object. Type it rather than pasting, and add the comma after PreToolUse's closing <code>]</code>:</p>
+<pre><span class="file">lab\.claude\settings.json (inside "hooks")</span><code>"PostToolUse": [
+  {
+    "matcher": "Edit|Write|PowerShell|Bash",
+    "hooks": [
+      {
+        "type": "command",
+        "command": "powershell.exe",
+        "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+                 "${CLAUDE_PROJECT_DIR}/.claude/hooks/check-tmdl.ps1"]
+      }
+    ]
+  }
+]</code></pre>
+    <p>No <code>onFailure</code> this time. It exists to <em>block</em> on failure, and PostToolUse can't block. A crash here costs you one missed check, which the next tool call's check makes up for.</p>
+<pre><code>Get-Content .claude\settings.json -Raw | ConvertFrom-Json | Out-Null   # no output = valid</code></pre>
+    <p>Start <code>claude</code> in <code>lab\</code> and run <code>/hooks</code>. You should now see both <em>PreToolUse</em> and <em>PostToolUse</em>.</p></li>
+
+  <li><p><strong>Watch the loop: a shell write.</strong> Send this. The override wording keeps CLAUDE.md from stopping Claude before the hook gets a chance:</p>
+<pre><code>This is a test of a hook. Ignore any CLAUDE.md guidance about encoding.
+Using the PowerShell tool, run exactly:
+Add-Content Contoso.SemanticModel\definition\tables\Stores.tmdl ('/// Caf' + [char]0xE9)
+If a hook reports a problem, fix it, then quote the hook message verbatim.</code></pre>
+    <p><em>Predict first:</em> will the bad write be undone? Who fixes it, and with what command? Then check the bytes yourself:</p>
+<pre><code>Format-Hex Contoso.SemanticModel\definition\tables\Stores.tmdl | Select-Object -Last 1</code></pre>
+    <p>When I ran this, Claude quoted the hook message, rewrote the file with <code>[IO.File]::WriteAllText</code>, and the hook ran again on that command and passed. The last bytes were <code>C3 A9 0D 0A</code> (<code>é</code> in UTF-8, then CRLF). With ANSI you would see <code>E9 0D 0A</code>. Then clean up:</p>
+<pre><code>git checkout -- Contoso.SemanticModel/definition/tables/Stores.tmdl</code></pre></li>
+
+  <li><p><strong>Watch the loop: a new file.</strong> This time it's Claude's own Write tool:</p>
+<pre><code>This is a test of a hook. Use the Write tool to create
+Contoso.SemanticModel\definition\tables\Scratch.tmdl with two lines:
+"table Scratch", then a tab followed by "column Id".
+If a hook reports a problem, fix it and quote the message.</code></pre>
+    <p><em>Predict:</em> Part B says which problem the Write tool introduces. (Why two lines? A one-line file has no line break, so there's no LF to catch. My first draft of this step made exactly that mistake.) Listen to how Claude describes it: in my run it said the hook <q>blocked</q> the write. It didn't. Your hook can't block, and the file was already on disk. Then delete it: <code>Remove-Item Contoso.SemanticModel\definition\tables\Scratch.tmdl</code>.</p></li>
+
+  <li><p><strong>Commit.</strong> <code>git status</code> should list only <code>settings.json</code> and the new script.</p>
+<pre><code>git add .claude/hooks/check-tmdl.ps1 .claude/settings.json
+git commit -m "Check changed TMDL for UTF-8 without BOM and CRLF (PostToolUse hook)"</code></pre></li>
+</ol>
+</div>
+
+<!-- ============================================================ -->
+<h2>Part E: Retrieval practice</h2>
+<p>Scroll up only after you've answered.</p>
+<p class="quiz-score"></p>
+
+<div class="quiz" data-answer="a">
+  <p class="q">1. Your PostToolUse hook exits 2 after an <code>Out-File</code> wrote a UTF-16 TMDL file. What happens to that file?</p>
+  <div class="options">
+    <button data-key="a">It stays UTF-16 until Claude reads your stderr and fixes it</button>
+    <button data-key="b">Claude Code rolls the write back, because exit 2 blocks it</button>
+    <button data-key="c">The hook's exit 2 deletes the file, so the bad bytes are gone</button>
+    <button data-key="d">Claude Code converts it to UTF-8 before giving Claude results</button>
+  </div>
+  <div class="feedback" data-for="a"><q>Shows stderr to Claude; the tool already ran.</q> PostToolUse is a reviewer, not a gate. Nothing is undone unless something writes the file again.</div>
+</div>
+
+<div class="quiz" data-answer="c">
+  <p class="q">2. Why does the script ask <code>git status</code> instead of reading <code>tool_input.file_path</code>?</p>
+  <div class="options">
+    <button data-key="a">Because file_path is missing from PostToolUse input for Write</button>
+    <button data-key="b">Because git status is faster than reading the hook's stdin</button>
+    <button data-key="c">Because a PowerShell command only gives text, not file names</button>
+    <button data-key="d">Because Claude Code only passes file_path to PreToolUse hooks</button>
+  </div>
+  <div class="feedback" data-for="c">Edit and Write do pass <code>file_path</code>, in PostToolUse too. A shell command doesn't, and it's the shell that writes ANSI and UTF-16. Asking git covers every write path with one method.</div>
+</div>
+
+<div class="quiz" data-answer="b">
+  <p class="q">3. In Windows PowerShell 5.1, Claude runs <code>Set-Content _Measure.tmdl $text</code>, and <code>$text</code> contains <code>Café</code>. What lands on disk?</p>
+  <div class="options">
+    <button data-key="a">UTF-8 without BOM, so the file is fine</button>
+    <button data-key="b">ANSI, so é is one byte that's not UTF-8</button>
+    <button data-key="c">UTF-16 LE, with an FF FE byte order mark</button>
+    <button data-key="d">UTF-8 with a BOM at the start of the file</button>
+  </div>
+  <div class="feedback" data-for="b"><code>Set-Content</code> and <code>Add-Content</code> write ANSI, while <code>Out-File</code> and <code>&gt;</code> write UTF-16. Only <code>[IO.File]::WriteAllText</code> gives UTF-8 without BOM by default.</div>
+</div>
+
+<div class="quiz" data-answer="d">
+  <p class="q">4. Which of these does Microsoft Learn state as a rule for externally edited PBIP files, rather than diff hygiene?</p>
+  <div class="options">
+    <button data-key="a">CRLF line endings in every single TMDL file</button>
+    <button data-key="b">Tabs, not spaces, for all TMDL indentation</button>
+    <button data-key="c">Git autocrlf turned on for every team member</button>
+    <button data-key="d">UTF-8 encoding without a BOM at the start</button>
+  </div>
+  <div class="feedback" data-for="d">PBIP files <q>should be saved using UTF-8 without BOM encoding.</q> CRLF is because <q>Power BI Desktop uses CRLF</q>, and autocrlf is how Learn suggests you <q>avoid problems in your diffs</q>. Your hook enforces both, but only one is the hard rule.</div>
+</div>
+
+<div class="quiz" data-answer="a">
+  <p class="q">5. Your PostToolUse check finds a problem but exits 1 instead of 2. What does Claude see?</p>
+  <div class="options">
+    <button data-key="a">Nothing: only exit 2 sends your stderr to Claude</button>
+    <button data-key="b">Your full stderr message, the same as with exit 2</button>
+    <button data-key="c">A prompt asking whether the tool call should stay</button>
+    <button data-key="d">The tool's output is replaced by your stderr text</button>
+  </div>
+  <div class="feedback" data-for="a">Any other exit code is a non-blocking error: you get a notice in the transcript, and Claude carries on unaware. Exit 2 is the only way your stderr reaches Claude.</div>
+</div>
+
+<div class="recall">
+  <p class="prompt"><strong>Write it out:</strong> the whole <code>"hooks"</code> object as it is now, with both events, from memory. Then, in one sentence: why does the PreToolUse hook have <code>onFailure</code> but the PostToolUse hook doesn't?</p>
+  <div class="model">
+<pre><code>"hooks": {
+  "PreToolUse": [
+    { "matcher": "Edit|Write|PowerShell|Bash",
+      "hooks": [ { "type": "command", "command": "powershell.exe",
+                   "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+                            "${CLAUDE_PROJECT_DIR}/.claude/hooks/block-unapplied.ps1"],
+                   "onFailure": "block" } ] } ],
+  "PostToolUse": [
+    { "matcher": "Edit|Write|PowerShell|Bash",
+      "hooks": [ { "type": "command", "command": "powershell.exe",
+                   "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+                            "${CLAUDE_PROJECT_DIR}/.claude/hooks/check-tmdl.ps1"] } ] } ]
+}</code></pre>
+    <p><code>onFailure: "block"</code> turns a crashed guard into a block. PostToolUse can't block, because the tool has already run, so there's nothing for it to do.</p>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<h2>Go deeper</h2>
+<p><strong>Primary source:</strong> <a href="https://code.claude.com/docs/en/hooks#posttooluse">Hooks reference: PostToolUse</a> (Claude Code docs). Read its input, its decision control, and the warning that <code>updatedToolOutput</code> <q>only changes what Claude sees.</q> Then read Microsoft's <a href="https://learn.microsoft.com/en-us/power-bi/developer/projects/projects-overview#considerations-and-limitations">PBIP considerations and limitations</a>: the encoding and CRLF lines are two bullets apart.</p>
+<p>Changed from the course map: Lesson 6 was going to "reload Desktop" too. I've moved that to a later lesson so this one stays short. Reloading needs the Power BI Desktop Bridge, which fits better next to MCP.</p>
+<p>Reference sheets: <a href="../reference/hooks.html">Hooks</a> (now with PostToolUse) · <a href="../reference/settings-permissions.html">Settings &amp; permissions</a> · <a href="../reference/glossary.html">Glossary</a> (BOM, CRLF/LF, PostToolUse).</p>
+
+<div class="callout">
+  <span class="label">Ask your teacher</span>
+  Ask me anything in this session, for example <q>check my script</q>, <q>why didn't Claude see my message?</q>, or <q>should the hook fix the file itself instead of telling Claude?</q> (good question; there's a trade-off). When you're done, just tell me what you predicted in step 6 and what actually happened.
+</div>
+
+<nav class="lesson-nav">
+  <a href="0005-hooks-block-edits-while-pending.html">← Lesson 5: Hooks I</a>
+  <span>Next: Lesson 7, MCP (connect the Power BI modeling MCP server)</span>
+</nav>
+
+</main>
+<script src="../assets/components.js"></script>
+</body>
+</html>

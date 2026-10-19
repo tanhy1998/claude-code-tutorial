@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reference · Skills (.claude/skills/)</title>
+<link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+<main>
+<nav class="crumbs"><a href="../index.html">Course map</a> · Reference · taught in <a href="../lessons/0004-skills-add-measure.html">Lesson 4</a> · <a href="glossary.html">Glossary</a></nav>
+
+<p class="kicker">Reference</p>
+<h1>Skills: <code>.claude/skills/</code></h1>
+<p class="subtitle">One page. Source: <a href="https://code.claude.com/docs/en/skills">code.claude.com/docs/en/skills</a> (checked 2026-10-18, Claude Code v2.1.302). Lines marked <em>tested</em> are from my own runs on that version.</p>
+
+<h2>Locations (name clash: enterprise &gt; personal &gt; project)</h2>
+<table>
+  <tr><th>Where</th><th>Reaches</th></tr>
+  <tr><td><code>~/.claude/skills/&lt;name&gt;/SKILL.md</code></td><td>You, every project</td></tr>
+  <tr><td><code>.claude/skills/&lt;name&gt;/SKILL.md</code></td><td>The repo (team via git)</td></tr>
+  <tr><td><code>&lt;subdir&gt;/.claude/skills/…</code></td><td>Nested: loads when Claude works in that folder</td></tr>
+  <tr><td><code>&lt;plugin&gt;/skills/&lt;name&gt;/SKILL.md</code></td><td>As <code>/plugin:name</code>. Namespaced, so it never clashes</td></tr>
+</table>
+<p>Edits reload live. If <code>.claude/skills/</code> didn't exist at session start, run <code>/reload-skills</code>. <code>.claude/commands/x.md</code> still works, but a skill with the same name wins over it.</p>
+
+<h2>Frontmatter you'll use</h2>
+<table>
+  <tr><th>Field</th><th>Does</th></tr>
+  <tr><td><code>name</code></td><td>The <code>/command</code>. Defaults to the folder name</td></tr>
+  <tr><td><code>description</code></td><td>What it does + "Use when …". Always in context; Claude matches on it. Capped at 1,536 chars, so put the use case first</td></tr>
+  <tr><td><code>argument-hint</code></td><td>Autocomplete hint, e.g. <code>"[table name]"</code></td></tr>
+  <tr><td><code>arguments</code></td><td>Names for positions: <code>[issue, branch]</code> → <code>$issue</code>, <code>$branch</code></td></tr>
+  <tr><td><code>disable-model-invocation</code></td><td><code>true</code> = only you can run it; description not in context</td></tr>
+  <tr><td><code>user-invocable</code></td><td><code>false</code> = only Claude can run it; hidden from <code>/</code> menu</td></tr>
+  <tr><td><code>allowed-tools</code></td><td>Pre-approves tools <em>for the invoking turn</em>. Doesn't restrict anything</td></tr>
+  <tr><td><code>disallowed-tools</code></td><td>Removes tools while the skill is active</td></tr>
+  <tr><td><code>shell</code></td><td><code>bash</code> (default) or <code>powershell</code> for <code>!`…`</code> lines</td></tr>
+  <tr><td><code>paths</code></td><td>Globs: Claude only auto-loads it when working on matching files</td></tr>
+  <tr><td><code>model</code>, <code>effort</code>, <code>context: fork</code>, <code>agent</code>, <code>hooks</code></td><td>Later lessons (subagents, hooks)</td></tr>
+</table>
+<p>Unknown fields are ignored without warning. Opening line not exactly <code>---</code> → no frontmatter.</p>
+
+<h2>Body substitutions</h2>
+<table>
+  <tr><th>Write</th><th>Becomes</th></tr>
+  <tr><td><code>$ARGUMENTS</code></td><td>Everything typed after <code>/name</code>. If there's no placeholder, it's appended as <code>ARGUMENTS: …</code></td></tr>
+  <tr><td><code>$0</code>, <code>$1</code> …</td><td>One argument each, from 0. <code>"Total Cost"</code> in quotes = one</td></tr>
+  <tr><td><code>\$1</code></td><td>A literal <code>$1</code>. <em>Tested:</em> unescaped "$1 million" became the 2nd argument</td></tr>
+  <tr><td><code>${CLAUDE_SKILL_DIR}</code></td><td>The skill's folder (for scripts)</td></tr>
+  <tr><td><code>!`cmd`</code> / <code>```!</code> block</td><td>Command output, inserted <em>before</em> Claude reads the skill</td></tr>
+</table>
+
+<h2>Dynamic context: <code>!`cmd`</code> rules</h2>
+<ol>
+  <li>Runs at invocation, every invocation. Claude only sees the output.</li>
+  <li>Non-zero exit → the <strong>whole invocation aborts</strong>. Append <code>|| true</code> to tolerate it.</li>
+  <li>Goes through permission checks. Outside auto mode, a command that isn't pre-approved aborts it. <em>Tested:</em> silent, with the reason only in <code>claude --debug</code> as <code>Shell command permission check failed for command in /name</code>.</li>
+  <li><em>Tested (PowerShell, manual mode):</em> <code>Test-Path</code> and <code>Select-String</code> with literal paths ran without approval. <code>New-Guid</code> needed <code>allowed-tools</code>. Wildcard paths, <code>[type]::Method()</code> calls, and <code>{ script blocks }</code> were refused even with <code>allowed-tools</code>.</li>
+  <li>Turn it off everywhere with the setting <code>"disableSkillShellExecution": true</code>.</li>
+</ol>
+
+<h2>Who invokes</h2>
+<table>
+  <tr><th>Frontmatter</th><th>You</th><th>Claude</th><th>Description in context</th></tr>
+  <tr><td>(default)</td><td>✓</td><td>✓</td><td>Always</td></tr>
+  <tr><td><code>disable-model-invocation: true</code></td><td>✓</td><td>✗</td><td>No</td></tr>
+  <tr><td><code>user-invocable: false</code></td><td>✗</td><td>✓</td><td>Always</td></tr>
+</table>
+<p>Block with permissions: <code>Skill</code> (all) or <code>Skill(name *)</code> in <code>deny</code>.</p>
+
+<h2>Lifecycle</h2>
+<ul>
+  <li>Once invoked, the rendered text stays in the conversation. <strong>It isn't re-read</strong>, so edits apply from the next invocation.</li>
+  <li>After compaction, the first 5,000 tokens of each recent skill come back (25,000 total). Put the key steps first, and re-invoke if it drifts.</li>
+  <li>A rule that must hold <em>every</em> time belongs in a hook, not a skill step.</li>
+</ul>
+
+<h2>Check it loaded</h2>
+<pre><code>Get-Content .claude\skills\NAME\SKILL.md -TotalCount 1   # exactly ---
+claude plugin validate .claude\skills                   # ✔ Validation passed
+/skills                                                 # inside Claude: listed?
+"What skills are available?"                            # does Claude see the description?
+/skill-doctor                                           # context cost, unused skills</code></pre>
+
+<h2>The lab's skill</h2>
+<pre><span class="file">lab\.claude\skills\add-measure\</span><code>SKILL.md            ← procedure: pending check, dedupe, columns, insert, GUID, Apply
+format-strings.md   ← supporting file: read only when picking a formatString</code></pre>
+<p>Conventions (names, folders, tabs) stay in <code>.claude/rules/tmdl.md</code>, the one home for them.</p>
+
+<p class="marginnote">Also see <a href="https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices">Skill authoring best practices</a> · <a href="rules.html">Rules reference</a> ("Which home?" table) · <a href="settings-permissions.html">Settings &amp; permissions</a>.</p>
+
+</main>
+</body>
+</html>
